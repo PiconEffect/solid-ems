@@ -3,37 +3,40 @@ name: CI
 on:
   push:
     branches: [main]
+  pull_request:
 
 jobs:
   lint:
     runs-on: ubuntu-latest
 
     steps:
-      # ✅ Checkout du repo
+      # ======================
+      # 📦 Checkout
+      # ======================
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ✅ Setup Python
+      # ======================
+      # 🐍 Python Setup
+      # ======================
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
-      # ✅ Installation outils
+      # ======================
+      # 📦 Cache pip (accélère CI)
+      # ======================
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      # ======================
+      # 📦 Install tools
+      # ======================
       - name: Install tools
         run: |
-          pip install ruff black
-
-      # ✅ Lint (tolérant)
-      - name: Ruff check
-        run: |
-          ruff check . || true
-
-      # ✅ Format (tolérant)
-      - name: Black check
-        run: |
-          black --check . || true
-
-      # ✅ Message final
-      - name: Done
-        run: echo "✅ CI terminé (mode tolérant)"

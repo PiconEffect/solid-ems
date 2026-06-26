@@ -9,6 +9,11 @@ mqtt = MqttClient()
 publish_discovery(mqtt)
 
 while True:
-    data = client.get_data()
-    mqtt.publish("solid/state", data)
+    try:
+        data = client.get_data()
+        mqtt.publish("solid/state", data)
+        print("✅ Data sent", data)
+    except Exception as e:
+        print("❌ Error:", e)
+
     time.sleep(3)

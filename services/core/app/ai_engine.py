@@ -22,9 +22,6 @@ class AiEngine:
 
         self.history_days = int(os.getenv("HISTORY_DAYS", "14"))
 
-    # -------------------------
-    # Safe helpers
-    # -------------------------
     def _to_float(self, value, default=0.0):
         try:
             if value is None:
@@ -39,9 +36,6 @@ class AiEngine:
         except (TypeError, ValueError):
             return 0.0
 
-    # -------------------------
-    # History storage
-    # -------------------------
     def _load_history(self):
         try:
             if not os.path.exists(self.history_file):
@@ -67,6 +61,7 @@ class AiEngine:
             cutoff = datetime.now() - timedelta(days=self.history_days)
 
             cleaned = []
+
             for item in history:
                 try:
                     ts = datetime.fromisoformat(item["timestamp"])
@@ -102,9 +97,6 @@ class AiEngine:
         history.append(sample)
         self._save_history(history)
 
-    # -------------------------
-    # Habit learning
-    # -------------------------
     def _average_load_for_hour(self, target_hour):
         history = self._load_history()
 
@@ -136,12 +128,6 @@ class AiEngine:
 
         return sum(values) / len(values)
 
-    # -------------------------
-    # PV string diagnostics
-    # IMPORTANT:
-    # No direct comparison between string 1 and string 2.
-    # Each string is compared only to its own historical behavior.
-    # -------------------------
     def _average_string_for_hour(self, string_key, target_hour):
         history = self._load_history()
 
@@ -171,7 +157,6 @@ class AiEngine:
         max_deviation_pct = 0.0
         priority = 0
 
-        # No reliable diagnostic when global production is low.
         if pv_dc < 0.8 and pv_ac < 0.8:
             return {
                 "pv_string_status": "LOW_LIGHT",
@@ -180,11 +165,9 @@ class AiEngine:
                 "pv_string_priority": 0,
             }
 
-        # Individual historical reference per string and per hour.
         pv1_reference = self._average_string_for_hour("pv1_power", now_hour)
         pv2_reference = self._average_string_for_hour("pv2_power", now_hour)
 
-        # Not enough history yet.
         if pv1_reference <= 0 or pv2_reference <= 0:
             return {
                 "pv_string_status": "LEARNING",
@@ -201,7 +184,6 @@ class AiEngine:
 
         max_deviation_pct = max(pv1_drop_pct, pv2_drop_pct)
 
-        # String nearly dead compared to its own historical behavior.
         if pv1_reference > 1.0 and pv1 < 0.15:
             status = "CRITICAL"
             alert = "Possible defaut String PV 1 : production quasi nulle par rapport a son historique"
@@ -212,7 +194,6 @@ class AiEngine:
             alert = "Possible defaut String PV 2 : production quasi nulle par rapport a son historique"
             priority = 6
 
-        # Strong individual drop.
         elif pv1_drop_pct >= 45 and pv1_reference > 0.8:
             status = "WARNING"
             alert = "String PV 1 nettement sous son niveau habituel : verifier ombrage, connectique ou panneau"
@@ -223,7 +204,6 @@ class AiEngine:
             alert = "String PV 2 nettement sous son niveau habituel : verifier ombrage, connectique ou panneau"
             priority = 5
 
-        # Moderate individual drop.
         elif pv1_drop_pct >= 30 and pv1_reference > 0.8:
             status = "WATCH"
             alert = "String PV 1 sous son niveau habituel : tendance a surveiller"
@@ -234,7 +214,6 @@ class AiEngine:
             alert = "String PV 2 sous son niveau habituel : tendance a surveiller"
             priority = 3
 
-        # DC / AC consistency check.
         if pv_dc > 1.0 and pv_ac > 0:
             ac_dc_ratio = pv_ac / pv_dc
 
@@ -254,9 +233,6 @@ class AiEngine:
             "pv_string_priority": priority,
         }
 
-    # -------------------------
-    # Weather / PV forecast
-    # -------------------------
     def _estimate_pv_forecast(self, current_pv):
         try:
             weather = self.weather.get_forecast()
@@ -275,9 +251,6 @@ class AiEngine:
 
         return self._safe_round(max(0, pv_estimated_kw), 1)
 
-    # -------------------------
-    # Battery estimations
-    # -------------------------
     def _estimate_autonomy_hours(self, battery_soc, load_power):
         if battery_soc <= 0 or load_power <= 0:
             return 0.0
@@ -306,9 +279,6 @@ class AiEngine:
 
         return self._safe_round(hours, 1)
 
-    # -------------------------
-    # Energy mode
-    # -------------------------
     def _detect_energy_mode(self, pv_power, load_power, battery_power, grid_power):
         if pv_power <= 0.1 and load_power > 0:
             return "Nuit / faible production"
@@ -327,9 +297,6 @@ class AiEngine:
 
         return "Autoconsommation stable"
 
-    # -------------------------
-    # Advice engine
-    # -------------------------
     def _build_advice(
         self,
         tempo_today,
@@ -457,9 +424,6 @@ class AiEngine:
 
         return advice[0], priority
 
-    # -------------------------
-    # Main analysis
-    # -------------------------
     def analyze(self, data):
         try:
             self._record_sample(data)

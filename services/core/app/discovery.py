@@ -1,8 +1,5 @@
 def publish_discovery(mqtt):
     sensors = {
-        # -------------------------
-        # Main sensors
-        # -------------------------
         "pv_power": {
             "name": "PV Power",
             "unit": "kW",
@@ -60,9 +57,7 @@ def publish_discovery(mqtt):
             "icon": "mdi:thermometer",
         },
 
-        # -------------------------
-        # PV string / MPPT sensors
-        # -------------------------
+        # PV strings
         "pv1_power": {
             "name": "PV String 1 Power",
             "unit": "kW",
@@ -85,9 +80,7 @@ def publish_discovery(mqtt):
             "icon": "mdi:solar-power-variant",
         },
 
-        # -------------------------
-        # AI / assistant sensors
-        # -------------------------
+        # AI assistant
         "advice": {
             "name": "AI Advice",
             "icon": "mdi:brain",
@@ -147,9 +140,23 @@ def publish_discovery(mqtt):
             "icon": "mdi:weather-sunny",
         },
 
-        # -------------------------
-        # Tempo sensors
-        # -------------------------
+        # PV string diagnostics from AI
+        "pv_string_status": {
+            "name": "PV String Status",
+            "icon": "mdi:solar-panel",
+        },
+        "pv_string_alert": {
+            "name": "PV String Alert",
+            "icon": "mdi:alert-circle",
+        },
+        "pv_string_imbalance_pct": {
+            "name": "PV String Individual Deviation",
+            "unit": "%",
+            "state_class": "measurement",
+            "icon": "mdi:scale-unbalanced",
+        },
+
+        # Tempo
         "tempo": {
             "name": "Tempo",
             "icon": "mdi:calendar-today",
@@ -167,9 +174,7 @@ def publish_discovery(mqtt):
             "icon": "mdi:palette-outline",
         },
 
-        # -------------------------
-        # Diagnostic raw Solis values
-        # -------------------------
+        # Diagnostics raw
         "raw_power": {
             "name": "Raw Power",
             "unit": "kW",

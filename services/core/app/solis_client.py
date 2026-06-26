@@ -4,34 +4,7 @@ import hmac
 import json
 import os
 import time
-from email.utils import formatdate
-
-import requests
-
-
-class SolisClient:
-    def __init__(self):
-        self.key_id = os.getenv("SOLIS_KEY_ID")
-        self.key_secret = os.getenv("SOLIS_KEY_SECRET")
-
-        # Optional manual override if needed
-        self.inverter_id = os.getenv("SOLIS_INVERTER_ID")
-
-        self.base_url = "https://www.soliscloud.com:13333"
-
-        self.last_autodetect_attempt = 0
-        self.autodetect_retry_interval = 300
-        self.timeout = 20
-
-        if not self.inverter_id:
-            self.inverter_id = self._get_valid_inverter()
-
-    def _sign(self, body, date, endpoint):
-        content_md5 = base64.b64encode(
-            hashlib.md5(body.encode("utf-8")).digest()
-        ).decode()
-
-        sign_str = f"POST\n{content_md5}\napplication/json\n{date}\n{endpoint}"
+from email.utils/json\n{date}\n{endpoint}"from email.utils import formatdate
 
         signature = base64.b64encode(
             hmac.new(
@@ -85,39 +58,53 @@ class SolisClient:
             return default
 
     def _map_data(self, d):
-        # Solis:
-        # pac = puissance AC instantanee onduleur en kW
-        # familyLoadPower = consommation maison instantanee en kW
-        # batteryPower positif semble correspondre a une charge batterie
-        # psum negatif semble correspondre a une injection reseau
+        raw_power = self._to_float(d.get("power"))
+        raw_pac = self._to_float(d.get("pac"))
+        raw_pow1 = self._to_float(d.get("pow1"))
+        raw_pow2 = self._to_float(d.get("pow2"))
+        raw_family_load = self._to_float(d.get("familyLoadPower"))
+        raw_total_load = self._to_float(d.get("totalLoadPower"))
+        raw_grid = self._to_float(d.get("psum"))
+        raw_battery = self._to_float(d.get("batteryPower"))
 
-        pv_power = d.get("pac")
-        if pv_power is None:
-            pv_power = d.get("power", 0)
+        pv_dc_power = (raw_pow1 + raw_pow2) / 1000.0
 
-        home_load = d.get("familyLoadPower")
-        if home_load is None:
-            home_load = d.get("totalLoadPower")
-        if home_load is None:
-            home_load = d.get("consumptionPower", 0)
+        # PV principal utilise pour Home Assistant
+        # pac est la puissance AC instantanee onduleur.
+        pv_power = raw_pac
+        if pv_power == 0:
+            pv_power = pv_dc_power
+        if pv_power == 0:
+            pv_power = raw_power
 
-        battery_power_raw = self._to_float(d.get("batteryPower"))
-
-        # Pour Power Flow Card Plus:
-        # valeur positive = batterie qui decharge
-        # valeur negative = batterie qui charge
-        battery_flow_power = -battery_power_raw
+        # Maison principale utilisee pour Home Assistant
+        # familyLoadPower est la vraie consommation maison instantanee.
+        load_power = raw_family_load
+        if load_power == 0:
+            load_power = raw_total_load
+        if load_power == 0:
+            load_power = self._to_float(d.get("consumptionPower"))
 
         result = {
-            "pv_power": self._to_float(pv_power),
+            "pv_power": round(pv_power, 3),
             "battery_soc": self._to_float(d.get("batteryCapacitySoc")),
-            "grid_power": self._to_float(d.get("psum")),
-            "load_power": self._to_float(home_load),
-            "battery_power": battery_power_raw,
-            "battery_flow_power": battery_flow_power,
+            "grid_power": raw_grid,
+            "load_power": round(load_power, 3),
+            "battery_power": raw_battery,
             "daily_energy": self._to_float(d.get("etoday", d.get("eToday"))),
             "total_energy": self._to_float(d.get("etotal", d.get("eTotal"))),
             "inverter_temp": self._to_float(d.get("temperature")),
+
+            # Diagnostic brut
+            "raw_power": raw_power,
+            "raw_pac": raw_pac,
+            "raw_pow1_kw": round(raw_pow1 / 1000.0, 3),
+            "raw_pow2_kw": round(raw_pow2 / 1000.0, 3),
+            "raw_pv_dc_kw": round(pv_dc_power, 3),
+            "raw_family_load": raw_family_load,
+            "raw_total_load": raw_total_load,
+            "raw_grid_psum": raw_grid,
+            "raw_battery_power": raw_battery,
         }
 
         return result
@@ -255,3 +242,27 @@ class SolisClient:
         except Exception as error:
             print("ERROR SOLIS:", error, flush=True)
             return self._get_data_from_inverter_list()
+
+import requests
+
+
+class SolisClient:
+    def __init__(self):
+        self.key_id = os.getenv("SOLIS_KEY_ID")
+        self.key_secret = os.getenv("SOLIS_KEY_SECRET")
+        self.inverter_id = os.getenv("SOLIS_INVERTER_ID")
+
+        self.base_url = "https://www.soliscloud.com:13333"
+
+        self.last_autodetect_attempt = 0
+        self.autodetect_retry_interval = 300
+        self.timeout = 20
+
+        if not self.inverter_id:
+            self.inverter_id = self._get_valid_inverter()
+
+    def _sign(self, body, date, endpoint):
+        content_md5 = base64.b64encode(
+            hashlib.md5(body.encode("utf-8")).digest()
+        ).decode()
+

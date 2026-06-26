@@ -2,128 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
-import os
-import time
-from email.utils import formatdate
-
-import requests
-
-
-class SolisClient:
-    def __init__(self):
-        self.key_id = os.getenv("SOLIS_KEY_ID")
-        self.key_secret = os.getenv("SOLIS_KEY_SECRET")
-        self.inverter_id = os.getenv("SOLIS_INVERTER_ID")
-
-        self.base_url = "https://www.soliscloud.com:13333"
-
-        self.last_autodetect_attempt = 0
-        self.autodetect_retry_interval = 300
-        self.timeout = 20
-
-        if not self.inverter_id:
-            self.inverter_id = self._get_valid_inverter()
-
-    def _sign(self, body, date, endpoint):
-        content_md5 = base64.b64encode(
-            hashlib.md5(body.encode("utf-8")).digest()
-        ).decode()
-
-        sign_str = f"POST\n{content_md5}\napplication/json\n{date}\n{endpoint}"
-
-        signature = base64.b64encode(
-            hmac.new(
-                self.key_secret.encode(),
-                sign_str.encode(),
-                hashlib.sha1,
-            ).digest()
-        ).decode()
-
-        return content_md5, signature
-
-    def _post(self, endpoint, payload):
-        url = f"{self.base_url}{endpoint}"
-
-        body = json.dumps(payload)
-        date = formatdate(usegmt=True)
-
-        content_md5, signature = self._sign(body, date, endpoint)
-
-        headers = {
-            "Content-Type": "application/json",
-            "Content-MD5": content_md5,
-            "Date": date,
-            "Authorization": f"API {self.key_id}:{signature}",
-        }
-
-        try:
-            response = requests.post(
-                url,
-                headers=headers,
-                data=body,
-                timeout=self.timeout,
-            )
-
-            if response.status_code != 200:
-                print(f"HTTP {response.status_code}: {response.text}", flush=True)
-                return None
-
-            return response.json()
-
-        except Exception as error:
-            print("HTTP ERROR:", error, flush=True)
-            return None
-
-    def _to_float(self, value, default=0.0):
-        try:
-            if value is None:
-                return default
-            return float(value)
-        except (TypeError, ValueError):
-            return default
-
-    def _map_data(self, d):
-        raw_power = self._to_float(d.get("power"))
-        raw_pac = self._to_float(d.get("pac"))
-        raw_pow1 = self._to_float(d.get("pow1"))
-        raw_pow2 = self._to_float(d.get("pow2"))
-        raw_family_load = self._to_float(d.get("familyLoadPower"))
-        raw_total_load = self._to_float(d.get("totalLoadPower"))
-        raw_grid = self._to_float(d.get("psum"))
-        raw_battery = self._to_float(d.get("batteryPower"))
-
-        pv1_power_kw = raw_pow1 / 1000.0
-        pv2_power_kw = raw_pow2 / 1000.0
-        pv_total_dc_kw = pv1_power_kw + pv2_power_kw
-
-        pv_power = raw_pac
-        if pv_power == 0:
-            pv_power = pv_total_dc_kw
-        if pv_power == 0:
-            pv_power = raw_power
-
-        load_power = raw_family_load
-        if load_power == 0:
-            load_power = raw_total_load
-        if load_power == 0:
-            load_power = self._to_float(d.get("consumptionPower"))
-
-        result = {
-            "pv_power": round(pv_power, 3),
-            "battery_soc": self._to_float(d.get("batteryCapacitySoc")),
-            "grid_power": raw_grid,
-            "load_power": round(load_power, 3),
-            "battery_power": raw_battery,
-            "daily_energy": self._to_float(d.get("etoday", d.get("eToday"))),
-            "total_energy": self._to_float(d.get("etotal", d.get("eTotal"))),
-            "inverter_temp": self._to_float(d.get("temperature")),
-            "pv1_power": round(pv1_power_kw, 3),
-            "pv2_power": round(pv2_power_kw, 3),
-            "pv_total_dc_power": round(pv_total_dc_kw, 3),
-            "raw_power": raw_power,
-            "raw_pac": raw_pac,
-            "raw_pow1_kw": round(pv1_power_kw, 3),
-            "raw_pow2_kw": round(pv2_power_kw, 3),
+import os3),import os
             "raw_pv_dc_kw": round(pv_total_dc_kw, 3),
             "raw_family_load": raw_family_load,
             "raw_total_load": raw_total_load,
@@ -266,3 +145,129 @@ class SolisClient:
         except Exception as error:
             print("ERROR SOLIS:", error, flush=True)
             return self._get_data_from_inverter_list()
+import time
+from email.utils import formatdate
+
+import requests
+
+
+class SolisClient:
+    def __init__(self):
+        self.key_id = os.getenv("SOLIS_KEY_ID")
+        self.key_secret = os.getenv("SOLIS_KEY_SECRET")
+        self.inverter_id = os.getenv("SOLIS_INVERTER_ID")
+
+        self.base_url = "https://www.soliscloud.com:13333"
+
+        self.last_autodetect_attempt = 0
+        self.autodetect_retry_interval = 300
+        self.timeout = 20
+
+        if not self.inverter_id:
+            self.inverter_id = self._get_valid_inverter()
+
+    def _sign(self, body, date, endpoint):
+        content_md5 = base64.b64encode(
+            hashlib.md5(body.encode("utf-8")).digest()
+        ).decode()
+
+        sign_str = f"POST\n{content_md5}\napplication/json\n{date}\n{endpoint}"
+
+        signature = base64.b64encode(
+            hmac.new(
+                self.key_secret.encode(),
+                sign_str.encode(),
+                hashlib.sha1,
+            ).digest()
+        ).decode()
+
+        return content_md5, signature
+
+    def _post(self, endpoint, payload):
+        url = f"{self.base_url}{endpoint}"
+
+        body = json.dumps(payload)
+        date = formatdate(usegmt=True)
+
+        content_md5, signature = self._sign(body, date, endpoint)
+
+        headers = {
+            "Content-Type": "application/json",
+            "Content-MD5": content_md5,
+            "Date": date,
+            "Authorization": f"API {self.key_id}:{signature}",
+        }
+
+        try:
+            response = requests.post(
+                url,
+                headers=headers,
+                data=body,
+                timeout=self.timeout,
+            )
+
+            if response.status_code != 200:
+                print(f"HTTP {response.status_code}: {response.text}", flush=True)
+                return None
+
+            return response.json()
+
+        except Exception as error:
+            print("HTTP ERROR:", error, flush=True)
+            return None
+
+    def _to_float(self, value, default=0.0):
+        try:
+            if value is None:
+                return default
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _map_data(self, d):
+        raw_power = self._to_float(d.get("power"))
+        raw_pac = self._to_float(d.get("pac"))
+        raw_pow1 = self._to_float(d.get("pow1"))
+        raw_pow2 = self._to_float(d.get("pow2"))
+        raw_family_load = self._to_float(d.get("familyLoadPower"))
+        raw_total_load = self._to_float(d.get("totalLoadPower"))
+        raw_grid = self._to_float(d.get("psum"))
+        raw_battery = self._to_float(d.get("batteryPower"))
+
+        pv1_power_kw = raw_pow1 / 1000.0
+        pv2_power_kw = raw_pow2 / 1000.0
+        pv_total_dc_kw = pv1_power_kw + pv2_power_kw
+
+        # Main PV power used by Home Assistant
+        # pac is live AC inverter output in kW.
+        pv_power = raw_pac
+        if pv_power == 0:
+            pv_power = pv_total_dc_kw
+        if pv_power == 0:
+            pv_power = raw_power
+
+        # Maison reelle
+        # familyLoadPower is the real home load from Solis.
+        load_power = raw_family_load
+        if load_power == 0:
+            load_power = raw_total_load
+        if load_power == 0:
+            load_power = self._to_float(d.get("consumptionPower"))
+
+        result = {
+            "pv_power": round(pv_power, 3),
+            "battery_soc": self._to_float(d.get("batteryCapacitySoc")),
+            "grid_power": raw_grid,
+            "load_power": round(load_power, 3),
+            "battery_power": raw_battery,
+            "daily_energy": self._to_float(d.get("etoday", d.get("eToday"))),
+            "total_energy": self._to_float(d.get("etotal", d.get("eTotal"))),
+            "inverter_temp": self._to_float(d.get("temperature")),
+
+            "pv1_power": round(pv1_power_kw, 3),
+            "pv2_power": round(pv2_power_kw, 3),
+            "pv_total_dc_power": round(pv_total_dc_kw, 3),
+
+            "raw_power": raw_power,
+            "raw_pac": raw_pac,
+            "raw_pow1_kw": round(pv1_power_kw, 3),

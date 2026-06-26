@@ -1,6 +1,5 @@
 import json
 import os
-import time
 from datetime import datetime, timedelta
 
 from tempo import Tempo
@@ -24,7 +23,7 @@ class AiEngine:
         self.history_days = int(os.getenv("HISTORY_DAYS", "14"))
 
     # -------------------------
-    # SAFE HELPERS
+    # Safe helpers
     # -------------------------
     def _to_float(self, value, default=0.0):
         try:
@@ -41,7 +40,7 @@ class AiEngine:
             return 0.0
 
     # -------------------------
-    # HISTORY STORAGE
+    # History storage
     # -------------------------
     def _load_history(self):
         try:
@@ -84,7 +83,6 @@ class AiEngine:
 
     def _record_sample(self, data):
         history = self._load_history()
-
         now = datetime.now()
 
         sample = {
@@ -92,6 +90,9 @@ class AiEngine:
             "hour": now.hour,
             "weekday": now.weekday(),
             "pv_power": self._to_float(data.get("pv_power")),
+            "pv1_power": self._to_float(data.get("pv1_power")),
+            "pv2_power": self._to_float(data.get("pv2_power")),
+            "pv_total_dc_power": self._to_float(data.get("pv_total_dc_power")),
             "load_power": self._to_float(data.get("load_power")),
             "battery_soc": self._to_float(data.get("battery_soc")),
             "battery_power": self._to_float(data.get("battery_power")),
@@ -102,7 +103,7 @@ class AiEngine:
         self._save_history(history)
 
     # -------------------------
-    # HABIT LEARNING
+    # Habit learning
     # -------------------------
     def _average_load_for_hour(self, target_hour):
         history = self._load_history()
@@ -136,19 +137,75 @@ class AiEngine:
         return sum(values) / len(values)
 
     # -------------------------
-    # TEMPO TEXT
+    # PV string diagnostics
     # -------------------------
-    def _tempo_text(self, code, label):
-        if code == 1:
-            return "Bleu"
-        if code == 2:
-            return "Blanc"
-        if code == 3:
-            return "Rouge"
-        return label or "Inconnu"
+    def _analyze_pv_strings(self, pv1_power, pv2_power, pv_total_dc_power, pv_power):
+        pv1 = self._to_float(pv1_power)
+        pv2 = self._to_float(pv2_power)
+        pv_dc = self._to_float(pv_total_dc_power)
+        pv_ac = self._to_float(pv_power)
+
+        status = "OK"
+        alert = "Strings PV equilibrees"
+        imbalance_pct = 0.0
+        priority = 0
+
+        # Not enough sun or data to diagnose reliably.
+        if pv_dc < 0.5 and pv_ac < 0.5:
+            return {
+                "pv_string_status": "LOW_LIGHT",
+                "pv_string_alert": "Production trop faible pour diagnostiquer les strings",
+                "pv_string_imbalance_pct": 0.0,
+                "pv_string_priority": 0,
+            }
+
+        max_string = max(pv1, pv2)
+        min_string = min(pv1, pv2)
+
+        if max_string > 0:
+            imbalance_pct = abs(pv1 - pv2) / max_string * 100
+
+        # Case: one string looks dead while the other produces.
+        if max_string > 1.0 and min_string < 0.15:
+            status = "CRITICAL"
+            if pv1 < pv2:
+                alert = "Possible defaut String PV 1 : production quasi nulle"
+            else:
+                alert = "Possible defaut String PV 2 : production quasi nulle"
+            priority = 6
+
+        # Strong imbalance.
+        elif imbalance_pct >= 40 and abs(pv1 - pv2) >= 1.0:
+            status = "WARNING"
+            if pv1 < pv2:
+                alert = "String PV 1 nettement plus faible que String PV 2"
+            else:
+                alert = "String PV 2 nettement plus faible que String PV 1"
+            priority = 4
+
+        # Moderate imbalance.
+        elif imbalance_pct >= 25 and abs(pv1 - pv2) >= 0.6:
+            status = "WATCH"
+            alert = "Ecart notable entre les deux strings PV, a surveiller"
+            priority = 3
+
+        # AC/DC consistency check.
+        if pv_dc > 1.0 and pv_ac > 0:
+            ratio = pv_ac / pv_dc
+            if ratio < 0.65:
+                status = "WARNING"
+                alert = "Ecart important entre puissance DC panneaux et puissance AC onduleur"
+                priority = max(priority, 4)
+
+        return {
+            "pv_string_status": status,
+            "pv_string_alert": alert,
+            "pv_string_imbalance_pct": self._safe_round(imbalance_pct, 1),
+            "pv_string_priority": priority,
+        }
 
     # -------------------------
-    # WEATHER / PV FORECAST
+    # Weather / PV forecast
     # -------------------------
     def _estimate_pv_forecast(self, current_pv):
         try:
@@ -161,19 +218,15 @@ class AiEngine:
         cloud = self._to_float(weather.get("cloud"), 100)
 
         pv_forecast = radiation * (1 - cloud / 100)
-
-        # Simple scaling factor.
-        # This is intentionally conservative.
         pv_estimated_kw = pv_forecast / 200
 
-        # If current production is already higher, keep current trend.
         if current_pv > pv_estimated_kw:
             pv_estimated_kw = current_pv
 
         return self._safe_round(max(0, pv_estimated_kw), 1)
 
     # -------------------------
-    # BATTERY ESTIMATIONS
+    # Battery estimations
     # -------------------------
     def _estimate_autonomy_hours(self, battery_soc, load_power):
         if battery_soc <= 0 or load_power <= 0:
@@ -190,7 +243,6 @@ class AiEngine:
 
         remaining_kwh = self.battery_capacity_kwh * (100 - battery_soc) / 100
 
-        # Solis battery_power positive is considered charge power in our current mapping.
         charge_power = max(
             self._to_float(battery_power),
             self._to_float(pv_power) - self._to_float(load_power),
@@ -205,7 +257,7 @@ class AiEngine:
         return self._safe_round(hours, 1)
 
     # -------------------------
-    # MODE DETECTION
+    # Energy mode
     # -------------------------
     def _detect_energy_mode(self, pv_power, load_power, battery_power, grid_power):
         if pv_power <= 0.1 and load_power > 0:
@@ -226,7 +278,7 @@ class AiEngine:
         return "Autoconsommation stable"
 
     # -------------------------
-    # ADVICE ENGINE
+    # Advice engine
     # -------------------------
     def _build_advice(
         self,
@@ -240,45 +292,57 @@ class AiEngine:
         habit_load_next_6h,
         estimated_autonomy_h,
         estimated_full_h,
+        pv_string_analysis,
     ):
         advice = []
         priority = 0
 
-        # Tomorrow red has very high priority.
+        # PV string diagnostic has high priority if critical.
+        pv_string_priority = pv_string_analysis.get("pv_string_priority", 0)
+        pv_string_status = pv_string_analysis.get("pv_string_status", "OK")
+        pv_string_alert = pv_string_analysis.get("pv_string_alert", "")
+
+        if pv_string_status in ["CRITICAL", "WARNING"]:
+            advice.append(pv_string_alert)
+            priority = max(priority, pv_string_priority)
+
         if tempo_tomorrow == 3:
             advice.append(
                 "Demain sera rouge : charger au maximum la batterie aujourd'hui et decaler les usages importants."
             )
-            priority = max(priority, 5)
+            priority = max(priority, 6)
 
             if battery_soc < 85:
                 advice.append(
                     "Objectif recommande : viser au moins 85 % de batterie avant demain matin."
                 )
-                priority = max(priority, 5)
+                priority = max(priority, 6)
 
-        # Today red.
+        elif tempo_tomorrow == 2:
+            advice.append(
+                "Demain sera blanc : conserver une marge batterie et eviter les usages lourds demain en heures pleines."
+            )
+            priority = max(priority, 3)
+
         if tempo_today == 3:
             advice.append(
                 "Aujourd'hui est rouge : limiter les gros consommateurs et privilegier la batterie."
             )
-            priority = max(priority, 5)
+            priority = max(priority, 6)
 
             if grid_power > 0.1:
                 advice.append(
                     "Import reseau detecte en jour rouge : reduire immediatement les charges non critiques."
                 )
-                priority = max(priority, 6)
+                priority = max(priority, 7)
 
-        # White day.
-        if tempo_today == 2:
+        elif tempo_today == 2:
             advice.append(
-                "Tempo blanc : eviter les usages lourds en heures pleines si possible."
+                "Tempo blanc aujourd'hui : eviter les usages lourds en heures pleines si possible."
             )
             priority = max(priority, 3)
 
-        # Blue day.
-        if tempo_today == 1 and tempo_tomorrow != 3:
+        elif tempo_today == 1:
             if pv_power > load_power and battery_soc > 60:
                 advice.append(
                     "Tempo bleu et surplus solaire : bon moment pour lancer les appareils energivores."
@@ -286,24 +350,22 @@ class AiEngine:
                 priority = max(priority, 3)
             else:
                 advice.append(
-                    "Tempo bleu : jour favorable, mais surveiller la batterie et le surplus solaire."
+                    "Tempo bleu : jour favorable, surveiller le surplus solaire et la batterie."
                 )
                 priority = max(priority, 2)
 
-        # Battery protection.
         if battery_soc < 20:
             advice.append(
                 "Batterie faible : limiter la consommation jusqu'au retour d'une production suffisante."
             )
-            priority = max(priority, 5)
+            priority = max(priority, 6)
 
         elif battery_soc < 35 and tempo_tomorrow == 3:
             advice.append(
                 "Batterie trop basse avant un jour rouge : eviter toute decharge inutile."
             )
-            priority = max(priority, 5)
+            priority = max(priority, 6)
 
-        # PV situation.
         if pv_power > load_power and battery_soc < 95:
             advice.append(
                 "Production PV superieure a la maison : laisser charger la batterie."
@@ -316,14 +378,12 @@ class AiEngine:
             )
             priority = max(priority, 4)
 
-        # Habits.
         if habit_load_next_6h > load_power * 1.25 and battery_soc < 50:
             advice.append(
                 "La consommation habituelle des prochaines heures est elevee : conserver la batterie."
             )
             priority = max(priority, 4)
 
-        # Forecast.
         if pv_forecast_kw < 1 and battery_soc < 50:
             advice.append(
                 "Faible production solaire prevue : garder une reserve batterie."
@@ -349,13 +409,17 @@ class AiEngine:
         return advice[0], priority
 
     # -------------------------
-    # MAIN ANALYSIS
+    # Main analysis
     # -------------------------
     def analyze(self, data):
         try:
             self._record_sample(data)
 
             pv_power = self._to_float(data.get("pv_power"))
+            pv1_power = self._to_float(data.get("pv1_power"))
+            pv2_power = self._to_float(data.get("pv2_power"))
+            pv_total_dc_power = self._to_float(data.get("pv_total_dc_power"))
+
             load_power = self._to_float(data.get("load_power"))
             battery_soc = self._to_float(data.get("battery_soc"))
             battery_power = self._to_float(data.get("battery_power"))
@@ -364,16 +428,10 @@ class AiEngine:
             tempo_data = self.tempo.get_tempo_data()
 
             tempo_today = int(tempo_data.get("tempo", 0))
-            tempo_label = self._tempo_text(
-                tempo_today,
-                tempo_data.get("tempo_label", "Inconnu"),
-            )
+            tempo_label = tempo_data.get("tempo_label", "Inconnu")
 
             tempo_tomorrow = int(tempo_data.get("tempo_tomorrow", 0))
-            tempo_tomorrow_label = self._tempo_text(
-                tempo_tomorrow,
-                tempo_data.get("tempo_tomorrow_label", "Inconnu"),
-            )
+            tempo_tomorrow_label = tempo_data.get("tempo_tomorrow_label", "Inconnu")
 
             pv_forecast_kw = self._estimate_pv_forecast(pv_power)
 
@@ -399,6 +457,13 @@ class AiEngine:
                 grid_power,
             )
 
+            pv_string_analysis = self._analyze_pv_strings(
+                pv1_power=pv1_power,
+                pv2_power=pv2_power,
+                pv_total_dc_power=pv_total_dc_power,
+                pv_power=pv_power,
+            )
+
             advice, priority = self._build_advice(
                 tempo_today=tempo_today,
                 tempo_tomorrow=tempo_tomorrow,
@@ -410,6 +475,7 @@ class AiEngine:
                 habit_load_next_6h=habit_load_next_6h,
                 estimated_autonomy_h=estimated_autonomy_h,
                 estimated_full_h=estimated_full_h,
+                pv_string_analysis=pv_string_analysis,
             )
 
             if priority >= 5:
@@ -449,6 +515,9 @@ class AiEngine:
                 "habit_load_next_6h_kw": self._safe_round(habit_load_next_6h, 2),
                 "advice_priority": priority,
                 "advice_confidence": confidence,
+                "pv_string_status": pv_string_analysis.get("pv_string_status"),
+                "pv_string_alert": pv_string_analysis.get("pv_string_alert"),
+                "pv_string_imbalance_pct": pv_string_analysis.get("pv_string_imbalance_pct"),
             }
 
         except Exception as error:
@@ -470,4 +539,7 @@ class AiEngine:
                 "habit_load_next_6h_kw": 0,
                 "advice_priority": 0,
                 "advice_confidence": "low",
+                "pv_string_status": "UNKNOWN",
+                "pv_string_alert": "Diagnostic strings PV indisponible",
+                "pv_string_imbalance_pct": 0,
             }

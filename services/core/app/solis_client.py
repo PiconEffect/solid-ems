@@ -11,13 +11,12 @@ class SolisClient:
     def __init__(self):
         self.key_id = os.getenv("SOLIS_KEY_ID")
         self.key_secret = os.getenv("SOLIS_KEY_SECRET")
-        self.inverter_id = os.getenv("SOLIS_INVERTER_ID")
+        self.inverter_id = None
 
         self.base_url = "https://www.soliscloud.com:13333"
 
-        # ✅ AUTO-DETECTION si pas d’ID
-        if not self.inverter_id:
-            self.inverter_id = self._get_first_inverter()
+        # ✅ AUTO-DETECT
+        self.inverter_id = self._get_valid_inverter()
 
     # -------------------------
     # 🔐 SIGNATURE
@@ -67,41 +66,57 @@ class SolisClient:
             return None
 
     # -------------------------
-    # 🚀 AUTO DISCOVERY INVERTER
+    # 🔍 AUTO-DETECT + VALIDATION
     # -------------------------
-    def _get_first_inverter(self):
+    def _get_valid_inverter(self):
         print("🔍 Auto-detect inverter...")
 
-        payload = {
-            "pageNo": 1,
-            "pageSize": 10
-        }
-
+        payload = {"pageNo": 1, "pageSize": 10}
         data = self._post("/v1/api/inverterList", payload)
 
         if not data or not data.get("success"):
-            print("❌ Unable to fetch inverter list:", data)
+            print("❌ Cannot fetch inverter list:", data)
             return None
 
         try:
             records = data["data"]["page"]["records"]
 
             if not records:
-                print("❌ No inverter found in account")
+                print("❌ No inverter found")
                 return None
 
-            inverter_id = records[0]["id"]
+            print("🔍 RAW inverter list:", records)
 
-            print(f"✅ Inverter auto-detected: {inverter_id}")
+            # 🔥 TEST CHAQUE ID POSSIBLE
+            for inv in records:
+                possible_ids = [
+                    inv.get("id"),
+                    inv.get("sn"),
+                    inv.get("deviceSn"),
+                    inv.get("inverterSn"),
+                ]
 
-            return inverter_id
+                for pid in possible_ids:
+                    if not pid:
+                        continue
+
+                    print(f"🔍 Testing ID: {pid}")
+
+                    test = self._post("/v1/api/inverterDetail", {"id": pid})
+
+                    if test and test.get("success") and test.get("data"):
+                        print(f"✅ VALID inverter found: {pid}")
+                        return str(pid)
+
+            print("❌ No valid inverter working")
+            return None
 
         except Exception as e:
-            print("❌ Error parsing inverter list:", e)
+            print("❌ Parsing error:", e)
             return None
 
     # -------------------------
-    # ⚡ GET DATA
+    # ⚡ DATA
     # -------------------------
     def get_data(self):
         try:
@@ -109,13 +124,10 @@ class SolisClient:
                 print("❌ No inverter ID available")
                 return {}
 
-            payload = {
-                "id": self.inverter_id
-            }
-
+            payload = {"id": self.inverter_id}
             data = self._post("/v1/api/inverterDetail", payload)
 
-            if data is None:
+            if not data:
                 print("❌ API returned None")
                 return {}
 
@@ -126,7 +138,7 @@ class SolisClient:
             d = data.get("data")
 
             if not d:
-                print("⚠️ Empty inverter data:", data)
+                print("⚠️ Empty data:", data)
                 return {}
 
             result = {
@@ -141,7 +153,6 @@ class SolisClient:
             }
 
             print("✅ DATA:", result)
-
             return result
 
         except Exception as e:

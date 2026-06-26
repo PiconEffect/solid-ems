@@ -1,5 +1,4 @@
 import time
-
 import requests
 
 
@@ -8,6 +7,7 @@ class Tempo:
         self.base_url = "https://www.api-couleur-tempo.fr/api/jourTempo"
         self.cache_duration = 900
         self.last_update = 0
+
         self.cached_data = {
             "tempo": 0,
             "tempo_label": "Inconnu",
@@ -20,6 +20,23 @@ class Tempo:
             return int(value)
         except (TypeError, ValueError):
             return 0
+
+    def _normalize_label(self, value):
+        if not value:
+            return "Inconnu"
+
+        label = str(value).strip()
+
+        if label.lower() in ["bleu", "blue"]:
+            return "Bleu"
+
+        if label.lower() in ["blanc", "white"]:
+            return "Blanc"
+
+        if label.lower() in ["rouge", "red"]:
+            return "Rouge"
+
+        return label
 
     def _fetch_day(self, day):
         url = f"{self.base_url}/{day}"
@@ -36,9 +53,14 @@ class Tempo:
 
             data = response.json()
 
+            code = self._normalize_code(data.get("codeJour"))
+            label = self._normalize_label(data.get("libCouleur"))
+
+            print(f"Tempo {day}: code={code}, label={label}", flush=True)
+
             return {
-                "code": self._normalize_code(data.get("codeJour")),
-                "label": data.get("libCouleur", "Inconnu"),
+                "code": code,
+                "label": label,
             }
 
         except Exception as error:
@@ -73,5 +95,11 @@ class Tempo:
     def get_tempo(self):
         return self.get_tempo_data().get("tempo", 0)
 
+    def get_tempo_label(self):
+        return self.get_tempo_data().get("tempo_label", "Inconnu")
+
     def get_tempo_tomorrow(self):
         return self.get_tempo_data().get("tempo_tomorrow", 0)
+
+    def get_tempo_tomorrow_label(self):
+        return self.get_tempo_data().get("tempo_tomorrow_label", "Inconnu")

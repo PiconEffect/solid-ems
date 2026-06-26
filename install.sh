@@ -157,4 +157,3 @@ echo ""
 echo "Home Assistant:"
 echo "  http://$IP:8123"
 echo ""
-``

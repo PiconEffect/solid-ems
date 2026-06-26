@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "==================================="
-echo "   SOLID EMS INSTALL V8 AI"
+echo "   SOLID EMS INSTALL V9"
 echo "==================================="
 echo ""
 

@@ -8,7 +8,7 @@ echo ""
 # ----------------------------
 # ✅ Vérification Docker
 # ----------------------------
-if ! command -v docker &> /dev/null
+if ! command -v docker > /dev/null
 then
     echo "❌ Docker non installé → installation..."
     curl -fsSL https://get.docker.com | sh
@@ -21,11 +21,25 @@ echo "✅ Docker OK"
 echo ""
 
 # ----------------------------
-# ✅ Demande identifiants
+# ✅ Demande USERNAME
 # ----------------------------
 read -p "Solis Username (email): " SOLIS_USERNAME
-read -s -p "Solis Password: " SOLIS_PASSWORD
-echo ""
+
+# ----------------------------
+# ✅ PASSWORD avec *
+# ----------------------------
+echo -n "Solis Password: "
+SOLIS_PASSWORD=""
+
+while IFS= read -r -s -n1 char; do
+    if [[ $char == "" ]]; then
+        echo ""
+        break
+    fi
+    SOLIS_PASSWORD+="$char"
+    echo -n "*"
+done
+
 echo ""
 
 # ----------------------------
@@ -45,9 +59,10 @@ RESPONSE=$(curl -s -X POST "https://www.soliscloud.com:13333/v1/api/userLogin" \
   -H "Content-Type: application/json" \
   -d "{\"userInfo\":\"$SOLIS_USERNAME\",\"password\":\"$SOLIS_PASSWORD\"}")
 
-SUCCESS=$(echo $RESPONSE | grep '"success":true')
+SUCCESS=$(echo "$RESPONSE" | grep '"success":true')
 
 if [ -z "$SUCCESS" ]; then
+    echo ""
     echo "❌ Échec login Solis !"
     echo "👉 Vérifie ton email/mot de passe"
     echo "👉 Réponse API:"
@@ -86,6 +101,6 @@ docker compose up -d --build
 echo ""
 echo "✅ Installation terminée ✅"
 echo ""
-echo "👉 Vérifier : docker ps"
-echo "👉 Logs : docker logs solid-core -f"
+echo "👉 docker ps"
+echo "👉 docker logs solid-core -f"
 echo ""

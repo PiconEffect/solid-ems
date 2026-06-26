@@ -15,11 +15,10 @@ class SolisClient:
 
         self.base_url = "https://www.soliscloud.com:13333"
 
-        # ✅ AUTO-DETECT
         self.inverter_id = self._get_valid_inverter()
 
     # -------------------------
-    # 🔐 SIGNATURE
+    # API SIGNATURE
     # -------------------------
     def _sign(self, body, date, endpoint):
         content_md5 = base64.b64encode(
@@ -29,13 +28,17 @@ class SolisClient:
         sign_str = f"POST\n{content_md5}\napplication/json\n{date}\n{endpoint}"
 
         signature = base64.b64encode(
-            hmac.new(self.key_secret.encode(), sign_str.encode(), hashlib.sha1).digest()
+            hmac.new(
+                self.key_secret.encode(),
+                sign_str.encode(),
+                hashlib.sha1,
+            ).digest()
         ).decode()
 
         return content_md5, signature
 
     # -------------------------
-    # 📡 POST API
+    # API POST
     # -------------------------
     def _post(self, endpoint, payload):
         url = f"{self.base_url}{endpoint}"
@@ -53,108 +56,144 @@ class SolisClient:
         }
 
         try:
-            response = requests.post(url, headers=headers, data=body, timeout=10)
+            response = requests.post(
+                url,
+                headers=headers,
+                data=body,
+                timeout=10,
+            )
 
             if response.status_code != 200:
-                print(f"❌ HTTP {response.status_code}: {response.text}")
+                print(f"HTTP {response.status_code}: {response.text}", flush=True)
                 return None
 
             return response.json()
 
-        except Exception as e:
-            print("❌ HTTP ERROR:", e)
+        except Exception as error:
+            print("HTTP ERROR:", error, flush=True)
             return None
 
     # -------------------------
-    # 🔍 AUTO-DETECT + VALIDATION
+    # AUTO-DETECT INVERTER
     # -------------------------
     def _get_valid_inverter(self):
-        print("🔍 Auto-detect inverter...")
+        print("Auto-detect inverter...", flush=True)
 
-        payload = {"pageNo": 1, "pageSize": 10}
+        payload = {
+            "pageNo": 1,
+            "pageSize": 10,
+        }
+
         data = self._post("/v1/api/inverterList", payload)
 
         if not data or not data.get("success"):
-            print("❌ Cannot fetch inverter list:", data)
+            print("Cannot fetch inverter list:", data, flush=True)
             return None
 
         try:
             records = data["data"]["page"]["records"]
 
             if not records:
-                print("❌ No inverter found")
+                print("No inverter found", flush=True)
                 return None
 
-            print("🔍 RAW inverter list:", records)
+            print("RAW inverter list:", records, flush=True)
 
-            # 🔥 TEST CHAQUE ID POSSIBLE
-            for inv in records:
+            for inverter in records:
                 possible_ids = [
-                    inv.get("id"),
-                    inv.get("sn"),
-                    inv.get("deviceSn"),
-                    inv.get("inverterSn"),
+                    inverter.get("id"),
+                    inverter.get("inverterId"),
+                    inverter.get("sn"),
+                    inverter.get("deviceSn"),
+                    inverter.get("inverterSn"),
                 ]
 
-                for pid in possible_ids:
-                    if not pid:
+                for inverter_id in possible_ids:
+                    if not inverter_id:
                         continue
 
-                    print(f"🔍 Testing ID: {pid}")
+                    print(f"Testing inverter ID: {inverter_id}", flush=True)
 
-                    test = self._post("/v1/api/inverterDetail", {"id": pid})
+                    test = self._post(
+                        "/v1/api/inverterDetail",
+                        {"id": inverter_id},
+                    )
 
                     if test and test.get("success") and test.get("data"):
-                        print(f"✅ VALID inverter found: {pid}")
-                        return str(pid)
+                        print(f"VALID inverter found: {inverter_id}", flush=True)
+                        return str(inverter_id)
 
-            print("❌ No valid inverter working")
+            print("No valid inverter working", flush=True)
             return None
 
-        except Exception as e:
-            print("❌ Parsing error:", e)
+        except Exception as error:
+            print("Inverter parsing error:", error, flush=True)
             return None
 
     # -------------------------
-    # ⚡ DATA
+    # GET LIVE DATA
     # -------------------------
     def get_data(self):
         try:
             if not self.inverter_id:
-                print("❌ No inverter ID available")
+                print("No inverter ID available", flush=True)
                 return {}
 
-            payload = {"id": self.inverter_id}
+            payload = {
+                "id": self.inverter_id,
+            }
+
             data = self._post("/v1/api/inverterDetail", payload)
 
             if not data:
-                print("❌ API returned None")
+                print("API returned None", flush=True)
                 return {}
 
             if not data.get("success"):
-                print("❌ API error:", data)
+                print("API error:", data, flush=True)
                 return {}
 
             d = data.get("data")
 
             if not d:
-                print("⚠️ Empty data:", data)
+                print("Empty data:", data, flush=True)
                 return {}
 
+            # --------------------------------------------------
+            # Important Solis mapping:
+            #
+            # pac = actual AC PV/inverter output in kW
+            # power = often rated/nominal value, not live PV
+            # familyLoadPower = current home load in kW
+            # psum = grid power in kW
+            # batteryPower = battery power in kW
+            # --------------------------------------------------
+
+            pv_power = d.get("pac")
+            if pv_power is None:
+                pv_power = d.get("power", 0)
+
+            load_power = d.get("familyLoadPower")
+            if load_power is None:
+                load_power = d.get("totalLoadPower")
+            if load_power is None:
+                load_power = d.get("consumptionPower", 0)
+
             result = {
-                "pv_power": d.get("power", 0),
+                "pv_power": pv_power,
                 "battery_soc": d.get("batteryCapacitySoc", 0),
                 "grid_power": d.get("psum", 0),
-                "load_power": d.get("familyLoadPower", 0),
+                "load_power": load_power,
                 "battery_power": d.get("batteryPower", 0),
-                "daily_energy": d.get("eToday", 0),
-                "total_energy": d.get("eTotal", 0),
+                "daily_energy": d.get("etoday", d.get("eToday", 0)),
+                "total_energy": d.get("etotal", d.get("eTotal", 0)),
                 "inverter_temp": d.get("temperature", 0),
             }
 
-            print("✅ DATA:", result)
+            print("DATA:", result, flush=True)
+
             return result
 
-        except Exception as e:
-            print("❌ ERROR SOLIS:", e)
+        except Exception as error:
+            print("ERROR SOLIS:", error, flush=True)
             return {}

@@ -29,11 +29,18 @@ def publish_discovery(mqtt):
             "icon": "mdi:home-lightning-bolt",
         },
         "battery_power": {
-            "name": "Battery Power",
+            "name": "Battery Power Raw",
             "unit": "kW",
             "device_class": "power",
             "state_class": "measurement",
             "icon": "mdi:battery-charging",
+        },
+        "battery_flow_power": {
+            "name": "Battery Flow Power",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:battery-sync",
         },
         "daily_energy": {
             "name": "Daily Energy",

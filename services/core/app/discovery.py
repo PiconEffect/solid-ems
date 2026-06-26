@@ -1,46 +1,7 @@
 def publish_discovery(mqtt):
     sensors = {
-        "pv_power": {
-            "name": "PV Power",
-            "unit": "kW",
-            "device_class": "power",
-            "state_class": "measurement",
-            "icon": "mdi:solar-power",
-        },
-        "battery_soc": {
-            "name": "Battery SOC",
-            "unit": "%",
-            "device_class": "battery",
-            "state_class": "measurement",
-            "icon": "mdi:battery",
-        },
-        "grid_power": {
-            "name": "Grid Power",
-            "unit": "kW",
-            "device_class": "power",
-            "state_class": "measurement",
-            "icon": "mdi:transmission-tower",
-        },
-        "load_power": {
-            "name": "Home Load",
-            "unit": "kW",
-            "device_class": "power",
-            "state_class": "measurement",
-            "icon": "mdi:home-lightning-bolt",
-        },
-        "battery_power": {
-            "name": "Battery Power Raw",
-            "unit": "kW",
-            "device_class": "power",
-            "state_class": "measurement",
-            "icon": "mdi:battery-charging",
-        },
-        "battery_flow_power": {
-            "name": "Battery Flow Power",
-            "unit": "kW",
-            "device_class": "power",
-            "state_class": "measurement",
-            "icon": "mdi:battery-sync",
+        # -------------------------
+        # Main-charging",        # Main sensors
         },
         "daily_energy": {
             "name": "Daily Energy",
@@ -63,6 +24,10 @@ def publish_discovery(mqtt):
             "state_class": "measurement",
             "icon": "mdi:thermometer",
         },
+
+        # -------------------------
+        # AI / assistant sensors
+        # -------------------------
         "advice": {
             "name": "AI Advice",
             "icon": "mdi:brain",
@@ -81,6 +46,74 @@ def publish_discovery(mqtt):
             "device_class": "power",
             "state_class": "measurement",
             "icon": "mdi:weather-sunny",
+        },
+
+        # -------------------------
+        # Diagnostic raw Solis values
+        # Useful to verify mapping
+        # -------------------------
+        "raw_power": {
+            "name": "Raw Power",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:alpha-p-circle",
+        },
+        "raw_pac": {
+            "name": "Raw PAC",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:sine-wave",
+        },
+        "raw_pow1_kw": {
+            "name": "Raw MPPT1",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:solar-panel",
+        },
+        "raw_pow2_kw": {
+            "name": "Raw MPPT2",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:solar-panel-large",
+        },
+        "raw_pv_dc_kw": {
+            "name": "Raw PV DC",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:solar-power-variant",
+        },
+        "raw_family_load": {
+            "name": "Raw Family Load",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:home-lightning-bolt",
+        },
+        "raw_total_load": {
+            "name": "Raw Total Load",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:home-lightning-bolt-outline",
+        },
+        "raw_grid_psum": {
+            "name": "Raw Grid PSUM",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:transmission-tower",
+        },
+        "raw_battery_power": {
+            "name": "Raw Battery Power",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:battery-charging",
         },
     }
 
@@ -116,3 +149,37 @@ def publish_discovery(mqtt):
         mqtt.publish(topic, config, retain=True)
 
     print("MQTT Discovery published", flush=True)
+        # -------------------------
+        "pv_power": {
+            "name": "PV Power",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:solar-power",
+        },
+        "battery_soc": {
+            "name": "Battery SOC",
+            "unit": "%",
+            "device_class": "battery",
+            "state_class": "measurement",
+            "icon": "mdi:battery",
+        },
+        "grid_power": {
+            "name": "Grid Power",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:transmission-tower",
+        },
+        "load_power": {
+            "name": "Home Load",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:home-lightning-bolt",
+        },
+        "battery_power": {
+            "name": "Battery Power",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",

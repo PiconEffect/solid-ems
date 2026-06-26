@@ -131,6 +131,17 @@ class SolisClient:
             return None
 
     # -------------------------
+    # SAFE FLOAT
+    # -------------------------
+    def _to_float(self, value, default=0):
+        try:
+            if value is None:
+                return default
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    # -------------------------
     # GET LIVE DATA
     # -------------------------
     def get_data(self):
@@ -160,13 +171,15 @@ class SolisClient:
                 return {}
 
             # --------------------------------------------------
-            # Important Solis mapping:
+            # SOLIS MAPPING
             #
-            # pac = actual AC PV/inverter output in kW
-            # power = often rated/nominal value, not live PV
-            # familyLoadPower = current home load in kW
-            # psum = grid power in kW
-            # batteryPower = battery power in kW
+            # pac = puissance instantanée AC onduleur en kW
+            # power = souvent puissance nominale / valeur moins fiable
+            # pow1 + pow2 = puissance DC MPPT, utile mais pas toujours égale AC
+            # familyLoadPower = vraie consommation maison instantanée en kW
+            # totalLoadPower = autre valeur maison, souvent identique
+            # psum = puissance réseau en kW
+            # batteryPower = puissance batterie en kW
             # --------------------------------------------------
 
             pv_power = d.get("pac")
@@ -180,14 +193,14 @@ class SolisClient:
                 load_power = d.get("consumptionPower", 0)
 
             result = {
-                "pv_power": pv_power,
-                "battery_soc": d.get("batteryCapacitySoc", 0),
-                "grid_power": d.get("psum", 0),
-                "load_power": load_power,
-                "battery_power": d.get("batteryPower", 0),
-                "daily_energy": d.get("etoday", d.get("eToday", 0)),
-                "total_energy": d.get("etotal", d.get("eTotal", 0)),
-                "inverter_temp": d.get("temperature", 0),
+                "pv_power": self._to_float(pv_power),
+                "battery_soc": self._to_float(d.get("batteryCapacitySoc")),
+                "grid_power": self._to_float(d.get("psum")),
+                "load_power": self._to_float(load_power),
+                "battery_power": self._to_float(d.get("batteryPower")),
+                "daily_energy": self._to_float(d.get("etoday", d.get("eToday"))),
+                "total_energy": self._to_float(d.get("etotal", d.get("eTotal"))),
+                "inverter_temp": self._to_float(d.get("temperature")),
             }
 
             print("DATA:", result, flush=True)

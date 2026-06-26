@@ -14,7 +14,7 @@ class SolisClient:
         self.key_id = os.getenv("SOLIS_KEY_ID")
         self.key_secret = os.getenv("SOLIS_KEY_SECRET")
 
-        # Optional manual override if one day we want to store it in .env
+        # Optional manual override if needed
         self.inverter_id = os.getenv("SOLIS_INVERTER_ID")
 
         self.base_url = "https://www.soliscloud.com:13333"
@@ -26,9 +26,6 @@ class SolisClient:
         if not self.inverter_id:
             self.inverter_id = self._get_valid_inverter()
 
-    # -------------------------
-    # API SIGNATURE
-    # -------------------------
     def _sign(self, body, date, endpoint):
         content_md5 = base64.b64encode(
             hashlib.md5(body.encode("utf-8")).digest()
@@ -46,9 +43,6 @@ class SolisClient:
 
         return content_md5, signature
 
-    # -------------------------
-    # API POST
-    # -------------------------
     def _post(self, endpoint, payload):
         url = f"{self.base_url}{endpoint}"
 
@@ -82,9 +76,6 @@ class SolisClient:
             print("HTTP ERROR:", error, flush=True)
             return None
 
-    # -------------------------
-    # SAFE FLOAT
-    # -------------------------
     def _to_float(self, value, default=0.0):
         try:
             if value is None:
@@ -93,36 +84,44 @@ class SolisClient:
         except (TypeError, ValueError):
             return default
 
-    # -------------------------
-    # MAP SOLIS DATA
-    # -------------------------
     def _map_data(self, d):
-        # Real PV / inverter output in kW
+        # Solis:
+        # pac = puissance AC instantanee onduleur en kW
+        # familyLoadPower = consommation maison instantanee en kW
+        # batteryPower positif semble correspondre a une charge batterie
+        # psum negatif semble correspondre a une injection reseau
+
         pv_power = d.get("pac")
         if pv_power is None:
             pv_power = d.get("power", 0)
 
-        # Real home load in kW
-        load_power = d.get("familyLoadPower")
-        if load_power is None:
-            load_power = d.get("totalLoadPower")
-        if load_power is None:
-            load_power = d.get("consumptionPower", 0)
+        home_load = d.get("familyLoadPower")
+        if home_load is None:
+            home_load = d.get("totalLoadPower")
+        if home_load is None:
+            home_load = d.get("consumptionPower", 0)
 
-        return {
+        battery_power_raw = self._to_float(d.get("batteryPower"))
+
+        # Pour Power Flow Card Plus:
+        # valeur positive = batterie qui decharge
+        # valeur negative = batterie qui charge
+        battery_flow_power = -battery_power_raw
+
+        result = {
             "pv_power": self._to_float(pv_power),
             "battery_soc": self._to_float(d.get("batteryCapacitySoc")),
             "grid_power": self._to_float(d.get("psum")),
-            "load_power": self._to_float(load_power),
-            "battery_power": self._to_float(d.get("batteryPower")),
+            "load_power": self._to_float(home_load),
+            "battery_power": battery_power_raw,
+            "battery_flow_power": battery_flow_power,
             "daily_energy": self._to_float(d.get("etoday", d.get("eToday"))),
             "total_energy": self._to_float(d.get("etotal", d.get("eTotal"))),
             "inverter_temp": self._to_float(d.get("temperature")),
         }
 
-    # -------------------------
-    # GET INVERTER LIST
-    # -------------------------
+        return result
+
     def _get_inverter_list(self):
         payload = {
             "pageNo": 1,
@@ -152,9 +151,6 @@ class SolisClient:
             print("Inverter list parsing error:", error, flush=True)
             return []
 
-    # -------------------------
-    # AUTO-DETECT INVERTER
-    # -------------------------
     def _get_valid_inverter(self):
         now = time.time()
 
@@ -200,9 +196,6 @@ class SolisClient:
         print("No valid inverter working", flush=True)
         return None
 
-    # -------------------------
-    # FALLBACK DATA FROM LIST
-    # -------------------------
     def _get_data_from_inverter_list(self):
         records = self._get_inverter_list()
 
@@ -223,9 +216,6 @@ class SolisClient:
 
         return result
 
-    # -------------------------
-    # GET LIVE DATA
-    # -------------------------
     def get_data(self):
         try:
             if not self.inverter_id:

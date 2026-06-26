@@ -1,212 +1,6 @@
 import json
 import os
-from datetime import datetime, timedelta
-
-from tempo import Tempo
-from weather import Weather
-
-
-class AiEngine:
-    def __init__(self):
-        self.tempo = Tempo()
-        self.weather = Weather()
-
-        self.history_file = os.getenv(
-            "HISTORY_FILE",
-            "/data/solid_ems_history.json",
-        )
-
-        self.battery_capacity_kwh = float(
-            os.getenv("BATTERY_CAPACITY_KWH", "30")
-        )
-
-        self.history_days = int(os.getenv("HISTORY_DAYS", "14"))
-
-    def _to_float(self, value, default=0.0):
-        try:
-            if value is None:
-                return default
-            return float(value)
-        except (TypeError, ValueError):
-            return default
-
-    def _safe_round(self, value, digits=2):
-        try:
-            return round(float(value), digits)
-        except (TypeError, ValueError):
-            return 0.0
-
-    def _load_history(self):
-        try:
-            if not os.path.exists(self.history_file):
-                return []
-
-            with open(self.history_file, "r", encoding="utf-8") as file:
-                data = json.load(file)
-
-            if not isinstance(data, list):
-                return []
-
-            return data
-
-        except Exception as error:
-            print("AI history load error:", error, flush=True)
-            return []
-
-    def _save_history(self, history):
-        try:
-            directory = os.path.dirname(self.history_file)
-            os.makedirs(directory, exist_ok=True)
-
-            cutoff = datetime.now() - timedelta(days=self.history_days)
-
-            cleaned = []
-
-            for item in history:
-                try:
-                    ts = datetime.fromisoformat(item["timestamp"])
-                    if ts >= cutoff:
-                        cleaned.append(item)
-                except Exception:
-                    continue
-
-            with open(self.history_file, "w", encoding="utf-8") as file:
-                json.dump(cleaned, file)
-
-        except Exception as error:
-            print("AI history save error:", error, flush=True)
-
-    def _record_sample(self, data):
-        history = self._load_history()
-        now = datetime.now()
-
-        sample = {
-            "timestamp": now.isoformat(timespec="seconds"),
-            "hour": now.hour,
-            "weekday": now.weekday(),
-            "pv_power": self._to_float(data.get("pv_power")),
-            "pv1_power": self._to_float(data.get("pv1_power")),
-            "pv2_power": self._to_float(data.get("pv2_power")),
-            "pv_total_dc_power": self._to_float(data.get("pv_total_dc_power")),
-            "load_power": self._to_float(data.get("load_power")),
-            "battery_soc": self._to_float(data.get("battery_soc")),
-            "battery_power": self._to_float(data.get("battery_power")),
-            "grid_power": self._to_float(data.get("grid_power")),
-        }
-
-        history.append(sample)
-        self._save_history(history)
-
-    def _average_load_for_hour(self, target_hour):
-        history = self._load_history()
-
-        values = [
-            self._to_float(item.get("load_power"))
-            for item in history
-            if item.get("hour") == target_hour
-        ]
-
-        values = [value for value in values if value > 0]
-
-        if not values:
-            return 0.0
-
-        return sum(values) / len(values)
-
-    def _average_load_next_hours(self, hours=6):
-        now = datetime.now()
-        values = []
-
-        for index in range(hours):
-            target_hour = (now.hour + index) % 24
-            value = self._average_load_for_hour(target_hour)
-            if value > 0:
-                values.append(value)
-
-        if not values:
-            return 0.0
-
-        return sum(values) / len(values)
-
-    def _average_string_for_hour(self, string_key, target_hour):
-        history = self._load_history()
-
-        values = [
-            self._to_float(item.get(string_key))
-            for item in history
-            if item.get("hour") == target_hour
-        ]
-
-        values = [value for value in values if value > 0.2]
-
-        if not values:
-            return 0.0
-
-        return sum(values) / len(values)
-
-    def _analyze_pv_strings(self, pv1_power, pv2_power, pv_total_dc_power, pv_power):
-        pv1 = self._to_float(pv1_power)
-        pv2 = self._to_float(pv2_power)
-        pv_dc = self._to_float(pv_total_dc_power)
-        pv_ac = self._to_float(pv_power)
-
-        now_hour = datetime.now().hour
-
-        status = "OK"
-        alert = "Strings PV conformes a leur comportement habituel"
-        max_deviation_pct = 0.0
-        priority = 0
-
-        if pv_dc < 0.8 and pv_ac < 0.8:
-            return {
-                "pv_string_status": "LOW_LIGHT",
-                "pv_string_alert": "Production trop faible pour diagnostiquer les strings",
-                "pv_string_imbalance_pct": 0.0,
-                "pv_string_priority": 0,
-            }
-
-        pv1_reference = self._average_string_for_hour("pv1_power", now_hour)
-        pv2_reference = self._average_string_for_hour("pv2_power", now_hour)
-
-        if pv1_reference <= 0 or pv2_reference <= 0:
-            return {
-                "pv_string_status": "LEARNING",
-                "pv_string_alert": "Apprentissage en cours : historique strings PV insuffisant",
-                "pv_string_imbalance_pct": 0.0,
-                "pv_string_priority": 0,
-            }
-
-        pv1_ratio = pv1 / pv1_reference if pv1_reference > 0 else 1
-        pv2_ratio = pv2 / pv2_reference if pv2_reference > 0 else 1
-
-        pv1_drop_pct = max(0, (1 - pv1_ratio) * 100)
-        pv2_drop_pct = max(0, (1 - pv2_ratio) * 100)
-
-        max_deviation_pct = max(pv1_drop_pct, pv2_drop_pct)
-
-        if pv1_reference > 1.0 and pv1 < 0.15:
-            status = "CRITICAL"
-            alert = "Possible defaut String PV 1 : production quasi nulle par rapport a son historique"
-            priority = 6
-
-        elif pv2_reference > 1.0 and pv2 < 0.15:
-            status = "CRITICAL"
-            alert = "Possible defaut String PV 2 : production quasi nulle par rapport a son historique"
-            priority = 6
-
-        elif pv1_drop_pct >= 45 and pv1_reference > 0.8:
-            status = "WARNING"
-            alert = "String PV 1 nettement sous son niveau habituel : verifier ombrage, connectique ou panneau"
-            priority = 5
-
-        elif pv2_drop_pct >= 45 and pv2_reference > 0.8:
-            status = "WARNING"
-            alert = "String PV 2 nettement sous son niveau habituel : verifier ombrage, connectique ou panneau"
-            priority = 5
-
-        elif pv1_drop_pct >= 30 and pv1_reference > 0.8:
-            status = "WATCH"
-            alert = "String PV 1 sous son niveau habituel : tendance a surveiller"
+from datetime import datetime, timedeltauel : tendance a surveiller"from datetime import datetime, timedelta
             priority = 3
 
         elif pv2_drop_pct >= 30 and pv2_reference > 0.8:
@@ -556,3 +350,208 @@ class AiEngine:
                 "pv_string_alert": "Diagnostic strings PV indisponible",
                 "pv_string_imbalance_pct": 0,
             }
+
+from tempo import Tempo
+from weather import Weather
+
+
+class AiEngine:
+    def __init__(self):
+        self.tempo = Tempo()
+        self.weather = Weather()
+
+        self.history_file = os.getenv(
+            "HISTORY_FILE",
+            "/data/solid_ems_history.json",
+        )
+
+        self.battery_capacity_kwh = float(
+            os.getenv("BATTERY_CAPACITY_KWH", "30")
+        )
+
+        self.history_days = int(os.getenv("HISTORY_DAYS", "14"))
+
+    def _to_float(self, value, default=0.0):
+        try:
+            if value is None:
+                return default
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _safe_round(self, value, digits=2):
+        try:
+            return round(float(value), digits)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _load_history(self):
+        try:
+            if not os.path.exists(self.history_file):
+                return []
+
+            with open(self.history_file, "r", encoding="utf-8") as file:
+                data = json.load(file)
+
+            if not isinstance(data, list):
+                return []
+
+            return data
+
+        except Exception as error:
+            print("AI history load error:", error, flush=True)
+            return []
+
+    def _save_history(self, history):
+        try:
+            directory = os.path.dirname(self.history_file)
+            os.makedirs(directory, exist_ok=True)
+
+            cutoff = datetime.now() - timedelta(days=self.history_days)
+
+            cleaned = []
+
+            for item in history:
+                try:
+                    ts = datetime.fromisoformat(item["timestamp"])
+                    if ts >= cutoff:
+                        cleaned.append(item)
+                except Exception:
+                    continue
+
+            with open(self.history_file, "w", encoding="utf-8") as file:
+                json.dump(cleaned, file)
+
+        except Exception as error:
+            print("AI history save error:", error, flush=True)
+
+    def _record_sample(self, data):
+        history = self._load_history()
+        now = datetime.now()
+
+        sample = {
+            "timestamp": now.isoformat(timespec="seconds"),
+            "hour": now.hour,
+            "weekday": now.weekday(),
+            "pv_power": self._to_float(data.get("pv_power")),
+            "pv1_power": self._to_float(data.get("pv1_power")),
+            "pv2_power": self._to_float(data.get("pv2_power")),
+            "pv_total_dc_power": self._to_float(data.get("pv_total_dc_power")),
+            "load_power": self._to_float(data.get("load_power")),
+            "battery_soc": self._to_float(data.get("battery_soc")),
+            "battery_power": self._to_float(data.get("battery_power")),
+            "grid_power": self._to_float(data.get("grid_power")),
+        }
+
+        history.append(sample)
+        self._save_history(history)
+
+    def _average_load_for_hour(self, target_hour):
+        history = self._load_history()
+
+        values = [
+            self._to_float(item.get("load_power"))
+            for item in history
+            if item.get("hour") == target_hour
+        ]
+
+        values = [value for value in values if value > 0]
+
+        if not values:
+            return 0.0
+
+        return sum(values) / len(values)
+
+    def _average_load_next_hours(self, hours=6):
+        now = datetime.now()
+        values = []
+
+        for index in range(hours):
+            target_hour = (now.hour + index) % 24
+            value = self._average_load_for_hour(target_hour)
+            if value > 0:
+                values.append(value)
+
+        if not values:
+            return 0.0
+
+        return sum(values) / len(values)
+
+    def _average_string_for_hour(self, string_key, target_hour):
+        history = self._load_history()
+
+        values = [
+            self._to_float(item.get(string_key))
+            for item in history
+            if item.get("hour") == target_hour
+        ]
+
+        values = [value for value in values if value > 0.2]
+
+        if not values:
+            return 0.0
+
+        return sum(values) / len(values)
+
+    def _analyze_pv_strings(self, pv1_power, pv2_power, pv_total_dc_power, pv_power):
+        pv1 = self._to_float(pv1_power)
+        pv2 = self._to_float(pv2_power)
+        pv_dc = self._to_float(pv_total_dc_power)
+        pv_ac = self._to_float(pv_power)
+
+        now_hour = datetime.now().hour
+
+        status = "OK"
+        alert = "Strings PV conformes a leur comportement habituel"
+        max_deviation_pct = 0.0
+        priority = 0
+
+        if pv_dc < 0.8 and pv_ac < 0.8:
+            return {
+                "pv_string_status": "LOW_LIGHT",
+                "pv_string_alert": "Production trop faible pour diagnostiquer les strings",
+                "pv_string_imbalance_pct": 0.0,
+                "pv_string_priority": 0,
+            }
+
+        pv1_reference = self._average_string_for_hour("pv1_power", now_hour)
+        pv2_reference = self._average_string_for_hour("pv2_power", now_hour)
+
+        if pv1_reference <= 0 or pv2_reference <= 0:
+            return {
+                "pv_string_status": "LEARNING",
+                "pv_string_alert": "Apprentissage en cours : historique strings PV insuffisant",
+                "pv_string_imbalance_pct": 0.0,
+                "pv_string_priority": 0,
+            }
+
+        pv1_ratio = pv1 / pv1_reference if pv1_reference > 0 else 1
+        pv2_ratio = pv2 / pv2_reference if pv2_reference > 0 else 1
+
+        pv1_drop_pct = max(0, (1 - pv1_ratio) * 100)
+        pv2_drop_pct = max(0, (1 - pv2_ratio) * 100)
+
+        max_deviation_pct = max(pv1_drop_pct, pv2_drop_pct)
+
+        if pv1_reference > 1.0 and pv1 < 0.15:
+            status = "CRITICAL"
+            alert = "Possible defaut String PV 1 : production quasi nulle par rapport a son historique"
+            priority = 6
+
+        elif pv2_reference > 1.0 and pv2 < 0.15:
+            status = "CRITICAL"
+            alert = "Possible defaut String PV 2 : production quasi nulle par rapport a son historique"
+            priority = 6
+
+        elif pv1_drop_pct >= 45 and pv1_reference > 0.8:
+            status = "WARNING"
+            alert = "String PV 1 nettement sous son niveau habituel : verifier ombrage, connectique ou panneau"
+            priority = 5
+
+        elif pv2_drop_pct >= 45 and pv2_reference > 0.8:
+            status = "WARNING"
+            alert = "String PV 2 nettement sous son niveau habituel : verifier ombrage, connectique ou panneau"
+            priority = 5
+
+        elif pv1_drop_pct >= 30 and pv1_reference > 0.8:
+            status = "WATCH"

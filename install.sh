@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "==================================="
-echo "   SOLID EMS INSTALL V6 (API PRO)"
+echo "   SOLID EMS INSTALL V7 (AUTO)"
 echo "==================================="
 echo ""
 
@@ -13,7 +13,7 @@ then
     echo "Docker not found -> installing..."
     curl -fsSL https://get.docker.com | sh
     sudo usermod -aG docker $USER
-    echo "Reconnect SSH then relaunch install.sh"
+    echo "Please reconnect SSH then rerun install.sh"
     exit 1
 fi
 
@@ -25,15 +25,14 @@ echo ""
 # ----------------------------
 read -p "Solis Key ID: " SOLIS_KEY_ID
 read -p "Solis Key Secret: " SOLIS_KEY_SECRET
-read -p "Solis Inverter ID: " SOLIS_INVERTER_ID
 
 echo ""
 
 # ----------------------------
 # ✅ VALIDATION
 # ----------------------------
-if [ -z "$SOLIS_KEY_ID" ] || [ -z "$SOLIS_KEY_SECRET" ] || [ -z "$SOLIS_INVERTER_ID" ]; then
-  echo "ERROR: missing input"
+if [ -z "$SOLIS_KEY_ID" ] || [ -z "$SOLIS_KEY_SECRET" ]; then
+  echo "ERROR: Missing Solis credentials"
   exit 1
 fi
 
@@ -43,7 +42,6 @@ fi
 cat <<EOF > .env
 SOLIS_KEY_ID=$SOLIS_KEY_ID
 SOLIS_KEY_SECRET=$SOLIS_KEY_SECRET
-SOLIS_INVERTER_ID=$SOLIS_INVERTER_ID
 
 MQTT_HOST=mqtt
 MQTT_PORT=1883
@@ -51,12 +49,12 @@ POLL_INTERVAL=3
 EOF
 
 echo ".env created"
+echo ""
 
 # ----------------------------
-# 🚀 START
+# 🚀 START SERVICES
 # ----------------------------
-echo ""
-echo "Starting services..."
+echo "Starting containers..."
 
 docker compose down
 docker compose up -d --build
@@ -71,9 +69,12 @@ echo "==================================="
 echo "INSTALL DONE"
 echo "==================================="
 echo ""
-echo "docker ps"
-echo "docker logs solid-core -f"
+echo "Check containers:"
+echo "  docker ps"
+echo ""
+echo "Check logs:"
+echo "  docker logs solid-core -f"
 echo ""
 echo "Home Assistant:"
-echo "http://$IP:8123"
+echo "  http://$IP:8123"
 echo ""

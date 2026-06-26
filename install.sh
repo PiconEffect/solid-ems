@@ -1,60 +1,8 @@
 #!/bin/bash
 
 echo "==================================="
-echo "   SOLID EMS INSTALL V9"
-echo "==================================="
-echo ""
-
-# ----------------------------
-# Check Docker
-# ----------------------------
-if ! command -v docker > /dev/null
-then
-    echo "Docker not found -> installing..."
-    curl -fsSL https://get.docker.com | sh
-    sudo usermod -aG docker $USER
-    echo "Please reconnect SSH then rerun install.sh"
-    exit 1
-fi
-
-echo "Docker OK"
-echo ""
-
-# ----------------------------
-# Solis API inputs
-# ----------------------------
-read -p "Solis Key ID: " SOLIS_KEY_ID
-
-echo -n "Solis Key Secret: "
-SOLIS_KEY_SECRET=""
-
-while true; do
-    IFS= read -r -s -n1 char
-
-    # Enter
-    if [[ $char == "" ]]; then
-        echo ""
-        break
-    fi
-
-    # Backspace
-    if [[ $char == $'\x7f' ]]; then
-        if [ -n "$SOLIS_KEY_SECRET" ]; then
-            SOLIS_KEY_SECRET=${SOLIS_KEY_SECRET%?}
-            echo -ne "\b \b"
-        fi
-    else
-        SOLIS_KEY_SECRET+="$char"
-        echo -n "*"
-    fi
-done
-
-echo ""
-
-# ----------------------------
-# Validation
-# ----------------------------
-if [ -z "$SOLIS_KEY_ID" ] || [ -z "$SOLIS_KEY_SECRET" ]; then
+echo "   SOLID EMS INSTALL V10"
+echo "================================ "$SOLIS_KEY_ID" ] || [ -z "$SOLIS_KEY_SECRET" ]; thenecho "==================================="
   echo "ERROR: Missing Solis credentials"
   exit 1
 fi
@@ -107,3 +55,60 @@ echo ""
 echo "Home Assistant:"
 echo "  http://$IP:8123"
 echo ""
+
+echo ""
+
+# ----------------------------
+# Check Docker
+# ----------------------------
+if ! command -v docker > /dev/null
+then
+    echo "Docker not found -> installing..."
+    curl -fsSL https://get.docker.com | sh
+    sudo usermod -aG docker $USER
+    echo "Please reconnect SSH then rerun install.sh"
+    exit 1
+fi
+
+echo "Docker OK"
+echo ""
+
+# ----------------------------
+# Solis API inputs
+# ----------------------------
+read -p "Solis Key ID: " SOLIS_KEY_ID
+
+echo -n "Solis Key Secret: "
+SOLIS_KEY_SECRET=""
+
+while true; do
+    IFS= read -r -s -n1 char
+
+    if [[ $char == "" ]]; then
+        echo ""
+        break
+    fi
+
+    if [[ $char == $'\x7f' ]]; then
+        if [ -n "$SOLIS_KEY_SECRET" ]; then
+            SOLIS_KEY_SECRET=${SOLIS_KEY_SECRET%?}
+            echo -ne "\b \b"
+        fi
+    else
+        SOLIS_KEY_SECRET+="$char"
+        echo -n "*"
+    fi
+done
+
+echo ""
+
+# ----------------------------
+# Clean inputs
+# Avoid terminal paste artefacts like ^[[201~
+# ----------------------------
+SOLIS_KEY_ID=$(printf "%s" "$SOLIS_KEY_ID" | tr -cd '0-9')
+SOLIS_KEY_SECRET=$(printf "%s" "$SOLIS_KEY_SECRET" | tr -cd 'A-Za-z0-9')
+
+# ----------------------------
+# Validation
+# ----------------------------

@@ -92,17 +92,20 @@ class SolisClient:
         raw_grid = self._to_float(d.get("psum"))
         raw_battery = self._to_float(d.get("batteryPower"))
 
-        pv_dc_power = (raw_pow1 + raw_pow2) / 1000.0
+        # pow1 / pow2 are provided in W by Solis.
+        pv1_power_kw = raw_pow1 / 1000.0
+        pv2_power_kw = raw_pow2 / 1000.0
+        pv_total_dc_kw = pv1_power_kw + pv2_power_kw
 
-        # Main PV value.
+        # Main PV power used in dashboard.
         # pac is the live AC inverter output in kW.
         pv_power = raw_pac
         if pv_power == 0:
-            pv_power = pv_dc_power
+            pv_power = pv_total_dc_kw
         if pv_power == 0:
             pv_power = raw_power
 
-        # Main home load value.
+        # Main home load used in dashboard.
         # familyLoadPower is the real home consumption from Solis.
         load_power = raw_family_load
         if load_power == 0:
@@ -120,12 +123,17 @@ class SolisClient:
             "total_energy": self._to_float(d.get("etotal", d.get("eTotal"))),
             "inverter_temp": self._to_float(d.get("temperature")),
 
+            # PV strings
+            "pv1_power": round(pv1_power_kw, 3),
+            "pv2_power": round(pv2_power_kw, 3),
+            "pv_total_dc_power": round(pv_total_dc_kw, 3),
+
             # Raw diagnostic values
             "raw_power": raw_power,
             "raw_pac": raw_pac,
-            "raw_pow1_kw": round(raw_pow1 / 1000.0, 3),
-            "raw_pow2_kw": round(raw_pow2 / 1000.0, 3),
-            "raw_pv_dc_kw": round(pv_dc_power, 3),
+            "raw_pow1_kw": round(pv1_power_kw, 3),
+            "raw_pow2_kw": round(pv2_power_kw, 3),
+            "raw_pv_dc_kw": round(pv_total_dc_kw, 3),
             "raw_family_load": raw_family_load,
             "raw_total_load": raw_total_load,
             "raw_grid_psum": raw_grid,

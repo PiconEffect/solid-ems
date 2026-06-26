@@ -32,4 +32,3 @@ while True:
         print("❌ ERROR:", e)
 
     time.sleep(interval)
-``

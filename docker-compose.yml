@@ -2,14 +2,7 @@ version: "3.9"
 
 services:
   solid-core:
- unless-stopped    build: ./services/core
-    ports:
-      - "1883:1883"
-    volumes:
-      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-
-volumes:
-  solid-data:
+    build: ./services/core
     container_name: solid-core
     restart: unless-stopped
     env_file:
@@ -22,3 +15,11 @@ volumes:
   mqtt:
     image: eclipse-mosquitto:2
     container_name: mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+volumes:
+  solid-data:

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "==================================="
-echo "      SOLID EMS INSTALL V4"
+echo "   SOLID EMS INSTALL V5 (SMART)"
 echo "==================================="
 echo ""
 
@@ -29,7 +29,7 @@ echo ""
 echo ""
 
 # ----------------------------
-# ⚠️ Validation simple
+# ✅ Vérification champs
 # ----------------------------
 if [ -z "$SOLIS_USERNAME" ] || [ -z "$SOLIS_PASSWORD" ]; then
   echo "❌ Champs vides → arrêt"
@@ -37,7 +37,29 @@ if [ -z "$SOLIS_USERNAME" ] || [ -z "$SOLIS_PASSWORD" ]; then
 fi
 
 # ----------------------------
-# ✅ Création du .env
+# ✅ TEST LOGIN SOLIS
+# ----------------------------
+echo "🔍 Test connexion Solis..."
+
+RESPONSE=$(curl -s -X POST "https://www.soliscloud.com:13333/v1/api/userLogin" \
+  -H "Content-Type: application/json" \
+  -d "{\"userInfo\":\"$SOLIS_USERNAME\",\"password\":\"$SOLIS_PASSWORD\"}")
+
+SUCCESS=$(echo $RESPONSE | grep '"success":true')
+
+if [ -z "$SUCCESS" ]; then
+    echo "❌ Échec login Solis !"
+    echo "👉 Vérifie ton email/mot de passe"
+    echo "👉 Réponse API:"
+    echo "$RESPONSE"
+    exit 1
+fi
+
+echo "✅ Login Solis valide"
+echo ""
+
+# ----------------------------
+# ✅ Création .env
 # ----------------------------
 cat <<EOF > .env
 SOLIS_USERNAME=$SOLIS_USERNAME
@@ -53,17 +75,17 @@ echo "✅ .env créé"
 # 🚀 Lancement Docker
 # ----------------------------
 echo ""
-echo "🚀 Lancement des services..."
+echo "🚀 Démarrage des services..."
 
 docker compose down
 docker compose up -d --build
 
 # ----------------------------
-# ✅ Résultat
+# ✅ FIN
 # ----------------------------
 echo ""
-echo "✅ Installation terminée !"
+echo "✅ Installation terminée ✅"
 echo ""
-echo "👉 Vérifie avec : docker ps"
+echo "👉 Vérifier : docker ps"
 echo "👉 Logs : docker logs solid-core -f"
 echo ""

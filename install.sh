@@ -21,23 +21,35 @@ echo "✅ Docker OK"
 echo ""
 
 # ----------------------------
-# ✅ Demande USERNAME
+# ✅ USERNAME
 # ----------------------------
 read -p "Solis Username (email): " SOLIS_USERNAME
 
 # ----------------------------
-# ✅ PASSWORD avec *
+# ✅ PASSWORD avec * + backspace
 # ----------------------------
 echo -n "Solis Password: "
 SOLIS_PASSWORD=""
 
-while IFS= read -r -s -n1 char; do
+while true; do
+    IFS= read -r -s -n1 char
+
+    # Entrée
     if [[ $char == "" ]]; then
         echo ""
         break
     fi
-    SOLIS_PASSWORD+="$char"
-    echo -n "*"
+
+    # Backspace
+    if [[ $char == $'\x7f' ]]; then
+        if [ -n "$SOLIS_PASSWORD" ]; then
+            SOLIS_PASSWORD=${SOLIS_PASSWORD%?}
+            echo -ne "\b \b"
+        fi
+    else
+        SOLIS_PASSWORD+="$char"
+        echo -n "*"
+    fi
 done
 
 echo ""
@@ -98,9 +110,19 @@ docker compose up -d --build
 # ----------------------------
 # ✅ FIN
 # ----------------------------
+IP=$(hostname -I | awk '{print $1}')
+
 echo ""
-echo "✅ Installation terminée ✅"
+echo "==================================="
+echo "✅ INSTALLATION TERMINÉE ✅"
+echo "==================================="
 echo ""
-echo "👉 docker ps"
-echo "👉 docker logs solid-core -f"
+echo "👉 Containers :"
+echo "   docker ps"
+echo ""
+echo "👉 Logs :"
+echo "   docker logs solid-core -f"
+echo ""
+echo "👉 Home Assistant :"
+echo "   http://$IP:8123"
 echo ""

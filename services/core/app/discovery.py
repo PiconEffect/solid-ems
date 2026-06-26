@@ -1,16 +1,17 @@
 def publish_discovery(mqtt):
     sensors = {
-        "pv_power": {"unit": "W", "device_class": "power"},
-        "battery_soc": {"unit": "%", "device_class": "battery"},
-        "grid_power": {"unit": "W", "device_class": "power"},
-        "load_power": {"unit": "W", "device_class": "power"},
-        "battery_power": {"unit": "W", "device_class": "power"},
-        "daily_energy": {"unit": "kWh", "device_class": "energy"},
-        "total_energy": {"unit": "kWh", "device_class": "energy"},
-        "inverter_temp": {"unit": "°C", "device_class": "temperature"},
+        "pv_power": {"unit": "W"},
+        "battery_soc": {"unit": "%"},
+        "grid_power": {"unit": "W"},
+        "load_power": {"unit": "W"},
+        "battery_power": {"unit": "W"},
+        "daily_energy": {"unit": "kWh"},
+        "total_energy": {"unit": "kWh"},
+        "inverter_temp": {"unit": "°C"},
         "advice": {},
         "tempo": {},
         "prediction": {},
+        "pv_forecast_kw": {"unit": "kW"},
     }
 
     for name, meta in sensors.items():
@@ -25,11 +26,7 @@ def publish_discovery(mqtt):
             },
         }
 
-        if "unit" in meta:
-            config["unit_of_measurement"] = meta.get("unit")
-
-        if "device_class" in meta:
-            config["device_class"] = meta.get("device_class")
+        if meta.get("unit"):
+            config["unit_of_measurement"] = meta["unit"]
 
         mqtt.publish(f"homeassistant/sensor/solid/{name}/config", config)
-

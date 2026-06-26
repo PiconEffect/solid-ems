@@ -1,22 +1,7 @@
 #!/bin/bash
 
 echo "==================================="
-I | awk '{print $1}')echo "   SOLID EMS INSTALL V10"
-
-echo ""
-echo "==================================="
-echo "INSTALL DONE"
-echo "==================================="
-echo ""
-echo "Check containers:"
-echo "  docker ps"
-echo ""
-echo "Check logs:"
-echo "  docker logs solid-core -f"
-echo ""
-echo "Home Assistant:"
-echo "  http://$IP:8123"
-echo ""
+echo "   SOLID EMS INSTALL V10"
 echo "==================================="
 echo ""
 
@@ -36,6 +21,16 @@ echo "Docker OK"
 echo ""
 
 # ----------------------------
+# Preserve existing optional values
+# ----------------------------
+OLD_SOLIS_INVERTER_ID=""
+
+if [ -f .env ]
+then
+    OLD_SOLIS_INVERTER_ID=$(grep "^SOLIS_INVERTER_ID=" .env | cut -d "=" -f2-)
+fi
+
+# ----------------------------
 # Solis API inputs
 # ----------------------------
 read -r -p "Solis Key ID: " SOLIS_KEY_ID
@@ -43,18 +38,20 @@ read -r -p "Solis Key ID: " SOLIS_KEY_ID
 echo -n "Solis Key Secret: "
 SOLIS_KEY_SECRET=""
 
-while true; do
+while true
+do
     IFS= read -r -s -n1 char
 
-    # Enter key
-    if [[ -z "$char" ]]; then
+    if [[ -z "$char" ]]
+    then
         echo ""
         break
     fi
 
-    # Backspace
-    if [[ "$char" == $'\x7f' ]]; then
-        if [ -n "$SOLIS_KEY_SECRET" ]; then
+    if [[ "$char" == $'\x7f' ]]
+    then
+        if [ -n "$SOLIS_KEY_SECRET" ]
+        then
             SOLIS_KEY_SECRET="${SOLIS_KEY_SECRET%?}"
             echo -ne "\b \b"
         fi
@@ -76,7 +73,8 @@ SOLIS_KEY_SECRET=$(printf "%s" "$SOLIS_KEY_SECRET" | tr -cd 'A-Za-z0-9')
 # ----------------------------
 # Validation
 # ----------------------------
-if [ -z "$SOLIS_KEY_ID" ] || [ -z "$SOLIS_KEY_SECRET" ]; then
+if [ -z "$SOLIS_KEY_ID" ] || [ -z "$SOLIS_KEY_SECRET" ]
+then
     echo "ERROR: Missing Solis credentials"
     exit 1
 fi
@@ -84,7 +82,7 @@ fi
 # ----------------------------
 # Create .env
 # ----------------------------
-cat > .env <<EOF
+cat > .env <<ENVEOF
 SOLIS_KEY_ID=$SOLIS_KEY_ID
 SOLIS_KEY_SECRET=$SOLIS_KEY_SECRET
 
@@ -95,7 +93,15 @@ POLL_INTERVAL=30
 BATTERY_CAPACITY_KWH=30
 HISTORY_FILE=/data/solid_ems_history.json
 HISTORY_DAYS=14
-EOF
+ENVEOF
+
+# Preserve optional inverter ID if it existed
+if [ -n "$OLD_SOLIS_INVERTER_ID" ]
+then
+    echo "" >> .env
+    echo "SOLIS_INVERTER_ID=$OLD_SOLIS_INVERTER_ID" >> .env
+    echo "Existing SOLIS_INVERTER_ID preserved"
+fi
 
 echo ".env created"
 echo "Polling interval set to 30 seconds"
@@ -107,8 +113,9 @@ echo ""
 # ----------------------------
 mkdir -p mosquitto
 
-if [ ! -f mosquitto/mosquitto.conf ]; then
-    cat > mosquitto/mosquitto.conf <<EOF
+if [ ! -f mosquitto/mosquitto.conf ]
+then
+    cat > mosquitto/mosquitto.conf <<MQTTEOF
 listener 1883 0.0.0.0
 allow_anonymous true
 
@@ -116,8 +123,11 @@ persistence true
 persistence_location /mosquitto/data/
 
 log_dest stdout
-EOF
+MQTTEOF
+
     echo "mosquitto.conf created"
+else
+    echo "mosquitto.conf already exists, keeping existing file"
 fi
 
 # ----------------------------
@@ -131,3 +141,20 @@ docker compose up -d --build
 # ----------------------------
 # End
 # ----------------------------
+IP=$(hostname -I | awk '{print $1}')
+
+echo ""
+echo "==================================="
+echo "INSTALL DONE"
+echo "==================================="
+echo ""
+echo "Check containers:"
+echo "  docker ps"
+echo ""
+echo "Check logs:"
+echo "  docker logs solid-core -f"
+echo ""
+echo "Home Assistant:"
+echo "  http://$IP:8123"
+echo ""
+``

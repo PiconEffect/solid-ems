@@ -6,7 +6,7 @@ echo "==================================="
 echo ""
 
 # ----------------------------
-# ✅ Vérification Docker
+# Check Docker
 # ----------------------------
 if ! command -v docker > /dev/null
 then
@@ -21,7 +21,7 @@ echo "Docker OK"
 echo ""
 
 # ----------------------------
-# ✅ INPUT SOLIS API
+# Solis API inputs
 # ----------------------------
 read -p "Solis Key ID: " SOLIS_KEY_ID
 read -p "Solis Key Secret: " SOLIS_KEY_SECRET
@@ -29,7 +29,7 @@ read -p "Solis Key Secret: " SOLIS_KEY_SECRET
 echo ""
 
 # ----------------------------
-# ✅ VALIDATION
+# Validation
 # ----------------------------
 if [ -z "$SOLIS_KEY_ID" ] || [ -z "$SOLIS_KEY_SECRET" ]; then
   echo "ERROR: Missing Solis credentials"
@@ -37,7 +37,7 @@ if [ -z "$SOLIS_KEY_ID" ] || [ -z "$SOLIS_KEY_SECRET" ]; then
 fi
 
 # ----------------------------
-# ✅ CREATE .env
+# Create .env
 # ----------------------------
 cat <<EOF > .env
 SOLIS_KEY_ID=$SOLIS_KEY_ID
@@ -45,14 +45,15 @@ SOLIS_KEY_SECRET=$SOLIS_KEY_SECRET
 
 MQTT_HOST=mqtt
 MQTT_PORT=1883
-POLL_INTERVAL=5
+POLL_INTERVAL=30
 EOF
 
 echo ".env created"
+echo "Polling interval set to 30 seconds"
 echo ""
 
 # ----------------------------
-# 🚀 START SERVICES
+# Start services
 # ----------------------------
 echo "Starting containers..."
 
@@ -60,7 +61,7 @@ docker compose down
 docker compose up -d --build
 
 # ----------------------------
-# ✅ FIN
+# End
 # ----------------------------
 IP=$(hostname -I | awk '{print $1}')
 
@@ -69,9 +70,12 @@ echo "==================================="
 echo "INSTALL DONE"
 echo "==================================="
 echo ""
-echo "docker ps"
-echo "docker logs solid-core -f"
+echo "Check containers:"
+echo "  docker ps"
+echo ""
+echo "Check logs:"
+echo "  docker logs solid-core -f"
 echo ""
 echo "Home Assistant:"
-echo "http://$IP:8123"
+echo "  http://$IP:8123"
 echo ""

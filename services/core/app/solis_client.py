@@ -4,7 +4,32 @@ import hmac
 import json
 import os
 import time
-from email.utils/json\n{date}\n{endpoint}"from email.utils import formatdate
+from email.utils import formatdate
+
+import requests
+
+
+class SolisClient:
+    def __init__(self):
+        self.key_id = os.getenv("SOLIS_KEY_ID")
+        self.key_secret = os.getenv("SOLIS_KEY_SECRET")
+        self.inverter_id = os.getenv("SOLIS_INVERTER_ID")
+
+        self.base_url = "https://www.soliscloud.com:13333"
+
+        self.last_autodetect_attempt = 0
+        self.autodetect_retry_interval = 300
+        self.timeout = 20
+
+        if not self.inverter_id:
+            self.inverter_id = self._get_valid_inverter()
+
+    def _sign(self, body, date, endpoint):
+        content_md5 = base64.b64encode(
+            hashlib.md5(body.encode("utf-8")).digest()
+        ).decode()
+
+        sign_str = f"POST\n{content_md5}\napplication/json\n{date}\n{endpoint}"
 
         signature = base64.b64encode(
             hmac.new(
@@ -69,16 +94,16 @@ from email.utils/json\n{date}\n{endpoint}"from email.utils import formatdate
 
         pv_dc_power = (raw_pow1 + raw_pow2) / 1000.0
 
-        # PV principal utilise pour Home Assistant
-        # pac est la puissance AC instantanee onduleur.
+        # Main PV value.
+        # pac is the live AC inverter output in kW.
         pv_power = raw_pac
         if pv_power == 0:
             pv_power = pv_dc_power
         if pv_power == 0:
             pv_power = raw_power
 
-        # Maison principale utilisee pour Home Assistant
-        # familyLoadPower est la vraie consommation maison instantanee.
+        # Main home load value.
+        # familyLoadPower is the real home consumption from Solis.
         load_power = raw_family_load
         if load_power == 0:
             load_power = raw_total_load
@@ -95,7 +120,7 @@ from email.utils/json\n{date}\n{endpoint}"from email.utils import formatdate
             "total_energy": self._to_float(d.get("etotal", d.get("eTotal"))),
             "inverter_temp": self._to_float(d.get("temperature")),
 
-            # Diagnostic brut
+            # Raw diagnostic values
             "raw_power": raw_power,
             "raw_pac": raw_pac,
             "raw_pow1_kw": round(raw_pow1 / 1000.0, 3),
@@ -242,27 +267,3 @@ from email.utils/json\n{date}\n{endpoint}"from email.utils import formatdate
         except Exception as error:
             print("ERROR SOLIS:", error, flush=True)
             return self._get_data_from_inverter_list()
-
-import requests
-
-
-class SolisClient:
-    def __init__(self):
-        self.key_id = os.getenv("SOLIS_KEY_ID")
-        self.key_secret = os.getenv("SOLIS_KEY_SECRET")
-        self.inverter_id = os.getenv("SOLIS_INVERTER_ID")
-
-        self.base_url = "https://www.soliscloud.com:13333"
-
-        self.last_autodetect_attempt = 0
-        self.autodetect_retry_interval = 300
-        self.timeout = 20
-
-        if not self.inverter_id:
-            self.inverter_id = self._get_valid_inverter()
-
-    def _sign(self, body, date, endpoint):
-        content_md5 = base64.b64encode(
-            hashlib.md5(body.encode("utf-8")).digest()
-        ).decode()
-

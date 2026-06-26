@@ -1,7 +1,42 @@
 def publish_discovery(mqtt):
     sensors = {
         # -------------------------
-        # Main-charging",        # Main sensors
+        # Main sensors
+        # -------------------------
+        "pv_power": {
+            "name": "PV Power",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:solar-power",
+        },
+        "battery_soc": {
+            "name": "Battery SOC",
+            "unit": "%",
+            "device_class": "battery",
+            "state_class": "measurement",
+            "icon": "mdi:battery",
+        },
+        "grid_power": {
+            "name": "Grid Power",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:transmission-tower",
+        },
+        "load_power": {
+            "name": "Home Load",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:home-lightning-bolt",
+        },
+        "battery_power": {
+            "name": "Battery Power",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:battery-charging",
         },
         "daily_energy": {
             "name": "Daily Energy",
@@ -32,10 +67,6 @@ def publish_discovery(mqtt):
             "name": "AI Advice",
             "icon": "mdi:brain",
         },
-        "tempo": {
-            "name": "Tempo",
-            "icon": "mdi:calendar-clock",
-        },
         "prediction": {
             "name": "Prediction",
             "icon": "mdi:crystal-ball",
@@ -49,8 +80,27 @@ def publish_discovery(mqtt):
         },
 
         # -------------------------
+        # Tempo sensors
+        # -------------------------
+        "tempo": {
+            "name": "Tempo",
+            "icon": "mdi:calendar-today",
+        },
+        "tempo_label": {
+            "name": "Tempo Label",
+            "icon": "mdi:palette",
+        },
+        "tempo_tomorrow": {
+            "name": "Tempo Tomorrow",
+            "icon": "mdi:calendar-arrow-right",
+        },
+        "tempo_tomorrow_label": {
+            "name": "Tempo Tomorrow Label",
+            "icon": "mdi:palette-outline",
+        },
+
+        # -------------------------
         # Diagnostic raw Solis values
-        # Useful to verify mapping
         # -------------------------
         "raw_power": {
             "name": "Raw Power",
@@ -149,37 +199,3 @@ def publish_discovery(mqtt):
         mqtt.publish(topic, config, retain=True)
 
     print("MQTT Discovery published", flush=True)
-        # -------------------------
-        "pv_power": {
-            "name": "PV Power",
-            "unit": "kW",
-            "device_class": "power",
-            "state_class": "measurement",
-            "icon": "mdi:solar-power",
-        },
-        "battery_soc": {
-            "name": "Battery SOC",
-            "unit": "%",
-            "device_class": "battery",
-            "state_class": "measurement",
-            "icon": "mdi:battery",
-        },
-        "grid_power": {
-            "name": "Grid Power",
-            "unit": "kW",
-            "device_class": "power",
-            "state_class": "measurement",
-            "icon": "mdi:transmission-tower",
-        },
-        "load_power": {
-            "name": "Home Load",
-            "unit": "kW",
-            "device_class": "power",
-            "state_class": "measurement",
-            "icon": "mdi:home-lightning-bolt",
-        },
-        "battery_power": {
-            "name": "Battery Power",
-            "unit": "kW",
-            "device_class": "power",
-            "state_class": "measurement",

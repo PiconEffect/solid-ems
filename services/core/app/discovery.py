@@ -1,8 +1,5 @@
 def publish_discovery(mqtt):
     sensors = {
-        # -------------------------
-        # Main sensors
-        # -------------------------
         "pv_power": {
             "name": "PV Power",
             "unit": "kW",
@@ -54,15 +51,11 @@ def publish_discovery(mqtt):
         },
         "inverter_temp": {
             "name": "Inverter Temperature",
-            "unit": "°C",
+            "unit": "degC",
             "device_class": "temperature",
             "state_class": "measurement",
             "icon": "mdi:thermometer",
         },
-
-        # -------------------------
-        # AI / assistant sensors
-        # -------------------------
         "advice": {
             "name": "AI Advice",
             "icon": "mdi:brain",
@@ -71,6 +64,49 @@ def publish_discovery(mqtt):
             "name": "Prediction",
             "icon": "mdi:crystal-ball",
         },
+        "energy_mode": {
+            "name": "Energy Mode",
+            "icon": "mdi:home-lightning-bolt",
+        },
+        "battery_strategy": {
+            "name": "Battery Strategy",
+            "icon": "mdi:battery-clock",
+        },
+        "estimated_autonomy_h": {
+            "name": "Estimated Autonomy",
+            "unit": "h",
+            "state_class": "measurement",
+            "icon": "mdi:timer-sand",
+        },
+        "estimated_battery_full_h": {
+            "name": "Estimated Battery Full",
+            "unit": "h",
+            "state_class": "measurement",
+            "icon": "mdi:battery-clock",
+        },
+        "habit_load_now_kw": {
+            "name": "Habit Load Now",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:chart-bell-curve",
+        },
+        "habit_load_next_6h_kw": {
+            "name": "Habit Load Next 6h",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:chart-timeline-variant",
+        },
+        "advice_priority": {
+            "name": "AI Advice Priority",
+            "state_class": "measurement",
+            "icon": "mdi:alert-decagram",
+        },
+        "advice_confidence": {
+            "name": "AI Advice Confidence",
+            "icon": "mdi:shield-check",
+        },
         "pv_forecast_kw": {
             "name": "PV Forecast",
             "unit": "kW",
@@ -78,10 +114,6 @@ def publish_discovery(mqtt):
             "state_class": "measurement",
             "icon": "mdi:weather-sunny",
         },
-
-        # -------------------------
-        # Tempo sensors
-        # -------------------------
         "tempo": {
             "name": "Tempo",
             "icon": "mdi:calendar-today",
@@ -98,10 +130,6 @@ def publish_discovery(mqtt):
             "name": "Tempo Tomorrow Label",
             "icon": "mdi:palette-outline",
         },
-
-        # -------------------------
-        # Diagnostic raw Solis values
-        # -------------------------
         "raw_power": {
             "name": "Raw Power",
             "unit": "kW",
@@ -195,7 +223,6 @@ def publish_discovery(mqtt):
             config["state_class"] = meta["state_class"]
 
         topic = f"homeassistant/sensor/solid/{key}/config"
-
         mqtt.publish(topic, config, retain=True)
 
     print("MQTT Discovery published", flush=True)

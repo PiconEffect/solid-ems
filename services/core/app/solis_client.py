@@ -4,13 +4,23 @@ import hmac
 import json
 import os
 import time
-from email.utils if one day we want to store it in .envfrom email.utils import formatdate
+from email.utils import formatdate
+
+import requests
+
+
+class SolisClient:
+    def __init__(self):
+        self.key_id = os.getenv("SOLIS_KEY_ID")
+        self.key_secret = os.getenv("SOLIS_KEY_SECRET")
+
+        # Optional manual override if one day we want to store it in .env
         self.inverter_id = os.getenv("SOLIS_INVERTER_ID")
 
         self.base_url = "https://www.soliscloud.com:13333"
 
         self.last_autodetect_attempt = 0
-        self.autodetect_retry_interval = 300  # 5 minutes
+        self.autodetect_retry_interval = 300
         self.timeout = 20
 
         if not self.inverter_id:
@@ -87,10 +97,12 @@ from email.utils if one day we want to store it in .envfrom email.utils import f
     # MAP SOLIS DATA
     # -------------------------
     def _map_data(self, d):
+        # Real PV / inverter output in kW
         pv_power = d.get("pac")
         if pv_power is None:
             pv_power = d.get("power", 0)
 
+        # Real home load in kW
         load_power = d.get("familyLoadPower")
         if load_power is None:
             load_power = d.get("totalLoadPower")
@@ -129,6 +141,7 @@ from email.utils if one day we want to store it in .envfrom email.utils import f
 
         try:
             records = data["data"]["page"]["records"]
+
             if not records:
                 print("No inverter found in inverter list", flush=True)
                 return []
@@ -252,13 +265,3 @@ from email.utils if one day we want to store it in .envfrom email.utils import f
         except Exception as error:
             print("ERROR SOLIS:", error, flush=True)
             return self._get_data_from_inverter_list()
-``
-
-import requests
-
-
-class SolisClient:
-    def __init__(self):
-        self.key_id = os.getenv("SOLIS_KEY_ID")
-        self.key_secret = os.getenv("SOLIS_KEY_SECRET")
-

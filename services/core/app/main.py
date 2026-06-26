@@ -1,14 +1,7 @@
 import os
 import time
 
-from ai_engine import AiEngine
-from discovery importisponible",from discovery import publish_discovery
-    "estimated_autonomy_h": 0.0,
-    "estimated_battery_full_h": 0.0,
-    "habit_load_now_kw": 0.0,
-    "habit_load_next_6h_kw": 0.0,
-    "advice_priority": 0,
-    "advice_confidence": "low",
+from ai_engine import AiEngineidence": "low",from ai_engine import AiEngine
     "pv_string_status": "UNKNOWN",
     "pv_string_alert": "Diagnostic strings PV indisponible",
     "pv_string_imbalance_pct": 0.0,
@@ -31,12 +24,13 @@ def main():
     poll_interval = int(os.getenv("POLL_INTERVAL", "30"))
 
     mqtt = MqttClient()
+
+    publish_discovery(mqtt)
+    print("MQTT Discovery published", flush=True)
+
     solis = SolisClient()
     ai = AiEngine()
 
-    publish_discovery(mqtt)
-
-    print("MQTT Discovery published", flush=True)
     print(f"Polling interval: {poll_interval}s", flush=True)
 
     last_good_solis_data = DEFAULT_SOLIS_DATA.copy()
@@ -99,6 +93,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+from discovery import publish_discovery
 from mqtt import MqttClient
 from solis_client import SolisClient
 
@@ -138,3 +133,9 @@ DEFAULT_AI_DATA = {
     "pv_forecast_kw": 0.0,
     "prediction": "Prediction indisponible",
     "energy_mode": "Indisponible",
+    "battery_strategy": "Indisponible",
+    "estimated_autonomy_h": 0.0,
+    "estimated_battery_full_h": 0.0,
+    "habit_load_now_kw": 0.0,
+    "habit_load_next_6h_kw": 0.0,
+    "advice_priority": 0,

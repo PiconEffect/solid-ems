@@ -1,5 +1,8 @@
 def publish_discovery(mqtt):
     sensors = {
+        # -------------------------
+        # Main sensors
+        # -------------------------
         "pv_power": {
             "name": "PV Power",
             "unit": "kW",
@@ -56,6 +59,35 @@ def publish_discovery(mqtt):
             "state_class": "measurement",
             "icon": "mdi:thermometer",
         },
+
+        # -------------------------
+        # PV string / MPPT sensors
+        # -------------------------
+        "pv1_power": {
+            "name": "PV String 1 Power",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:solar-panel",
+        },
+        "pv2_power": {
+            "name": "PV String 2 Power",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:solar-panel-large",
+        },
+        "pv_total_dc_power": {
+            "name": "PV DC Total Power",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:solar-power-variant",
+        },
+
+        # -------------------------
+        # AI / assistant sensors
+        # -------------------------
         "advice": {
             "name": "AI Advice",
             "icon": "mdi:brain",
@@ -114,6 +146,10 @@ def publish_discovery(mqtt):
             "state_class": "measurement",
             "icon": "mdi:weather-sunny",
         },
+
+        # -------------------------
+        # Tempo sensors
+        # -------------------------
         "tempo": {
             "name": "Tempo",
             "icon": "mdi:calendar-today",
@@ -130,6 +166,10 @@ def publish_discovery(mqtt):
             "name": "Tempo Tomorrow Label",
             "icon": "mdi:palette-outline",
         },
+
+        # -------------------------
+        # Diagnostic raw Solis values
+        # -------------------------
         "raw_power": {
             "name": "Raw Power",
             "unit": "kW",

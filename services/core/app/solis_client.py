@@ -1,5 +1,4 @@
 import requests
-import time
 import hashlib
 import base64
 import hmac
@@ -20,15 +19,12 @@ class SolisClient:
     # 🔐 SIGNATURE API SOLIS
     # -------------------------
     def _sign(self, body, date, endpoint):
-        # MD5 du body encodé base64
         content_md5 = base64.b64encode(
             hashlib.md5(body.encode("utf-8")).digest()
         ).decode()
 
-        # String à signer
         sign_str = f"POST\n{content_md5}\napplication/json\n{date}\n{endpoint}"
 
-        # Signature HMAC SHA1
         signature = base64.b64encode(
             hmac.new(
                 self.key_secret.encode(),
@@ -40,17 +36,14 @@ class SolisClient:
         return content_md5, signature
 
     # -------------------------
-    # 📡 REQUETE POST SECURISEE
+    # 📡 REQUETE API
     # -------------------------
     def _post(self, endpoint, payload):
         url = f"{self.base_url}{endpoint}"
 
         body = json.dumps(payload)
-
-        # Date format RFC (obligatoire pour Solis)
         date = formatdate(usegmt=True)
 
-        # Génération signature
         content_md5, signature = self._sign(body, date, endpoint)
 
         headers = {
@@ -67,14 +60,20 @@ class SolisClient:
                 data=body,
                 timeout=10
             )
+
+            # ✅ DEBUG HTTP
+            if response.status_code != 200:
+                print(f"❌ HTTP {response.status_code}: {response.text}")
+                return None
+
             return response.json()
 
         except Exception as e:
             print("❌ HTTP ERROR:", e)
-            return {}
+            return None
 
     # -------------------------
-    # ⚡ RECUPERATION DONNEES
+    # ⚡ GET DATA
     # -------------------------
     def get_data(self):
         try:
@@ -88,11 +87,24 @@ class SolisClient:
 
             data = self._post("/v1/api/inverterDetail", payload)
 
+            # ✅ DEBUG COMPLET
+            if data is None:
+                print("❌ API returned None")
+                return {}
+
+            if not isinstance(data, dict):
+                print("❌ Invalid API format:", data)
+                return {}
+
             if not data.get("success"):
                 print("❌ API error:", data)
                 return {}
 
-            d = data.get("data", {})
+            d = data.get("data")
+
+            if not d:
+                print("⚠️ Empty inverter data:", data)
+                return {}
 
             result = {
                 "pv_power": d.get("power", 0),

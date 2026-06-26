@@ -1,53 +1,6 @@
 def publish_discovery(mqtt):
     sensors = {
-        "pv_power": {
-            "name": "PV Power",
-            "unit": "kW",
-            "device_class": "power",
-            "state_class": "measurement",
-            "icon": "mdi:solar-power",
-        },
-        "battery_soc": {
-            "name": "Battery SOC",
-            "unit": "%",
-            "device_class": "battery",
-            "state_class": "measurement",
-            "icon": "mdi:battery",
-        },
-        "grid_power": {
-            "name": "Grid Power",
-            "unit": "kW",
-            "device_class": "power",
-            "state_class": "measurement",
-            "icon": "mdi:transmission-tower",
-        },
-        "load_power": {
-            "name": "Home Load",
-            "unit": "kW",
-            "device_class": "power",
-            "state_class": "measurement",
-            "icon": "mdi:home-lightning-bolt",
-        },
-        "battery_power": {
-            "name": "Battery Power",
-            "unit": "kW",
-            "device_class": "power",
-            "state_class": "measurement",
-            "icon": "mdi:battery-charging",
-        },
-        "daily_energy": {
-            "name": "Daily Energy",
-            "unit": "kWh",
-            "device_class": "energy",
-            "state_class": "total_increasing",
-            "icon": "mdi:counter",
-        },
-        "total_energy": {
-            "name": "Total Energy",
-            "unit": "MWh",
-            "device_class": "energy",
-            "state_class": "total_increasing",
-            "icon": "mdi:counter",
+": "mdi:counter",        "pv_power": {
         },
         "inverter_temp": {
             "name": "Inverter Temperature",
@@ -56,8 +9,6 @@ def publish_discovery(mqtt):
             "state_class": "measurement",
             "icon": "mdi:thermometer",
         },
-
-        # PV strings
         "pv1_power": {
             "name": "PV String 1 Power",
             "unit": "kW",
@@ -79,8 +30,6 @@ def publish_discovery(mqtt):
             "state_class": "measurement",
             "icon": "mdi:solar-power-variant",
         },
-
-        # AI assistant
         "advice": {
             "name": "AI Advice",
             "icon": "mdi:brain",
@@ -139,8 +88,6 @@ def publish_discovery(mqtt):
             "state_class": "measurement",
             "icon": "mdi:weather-sunny",
         },
-
-        # PV string diagnostics from AI
         "pv_string_status": {
             "name": "PV String Status",
             "icon": "mdi:solar-panel",
@@ -155,8 +102,6 @@ def publish_discovery(mqtt):
             "state_class": "measurement",
             "icon": "mdi:scale-unbalanced",
         },
-
-        # Tempo
         "tempo": {
             "name": "Tempo",
             "icon": "mdi:calendar-today",
@@ -173,8 +118,6 @@ def publish_discovery(mqtt):
             "name": "Tempo Tomorrow Label",
             "icon": "mdi:palette-outline",
         },
-
-        # Diagnostics raw
         "raw_power": {
             "name": "Raw Power",
             "unit": "kW",
@@ -271,3 +214,49 @@ def publish_discovery(mqtt):
         mqtt.publish(topic, config, retain=True)
 
     print("MQTT Discovery published", flush=True)
+            "name": "PV Power",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:solar-power",
+        },
+        "battery_soc": {
+            "name": "Battery SOC",
+            "unit": "%",
+            "device_class": "battery",
+            "state_class": "measurement",
+            "icon": "mdi:battery",
+        },
+        "grid_power": {
+            "name": "Grid Power",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:transmission-tower",
+        },
+        "load_power": {
+            "name": "Home Load",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:home-lightning-bolt",
+        },
+        "battery_power": {
+            "name": "Battery Power",
+            "unit": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "icon": "mdi:battery-charging",
+        },
+        "daily_energy": {
+            "name": "Daily Energy",
+            "unit": "kWh",
+            "device_class": "energy",
+            "state_class": "total_increasing",
+            "icon": "mdi:counter",
+        },
+        "total_energy": {
+            "name": "Total Energy",
+            "unit": "MWh",
+            "device_class": "energy",
+            "state_class": "total_increasing",

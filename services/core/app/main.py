@@ -1,34 +1,49 @@
-import time
-from solis_client import SolisClient
-from mqtt import MqttClient
-from discovery import publish_discovery
-from ai_engine import AiEngine
 import os
+import time
 
-client = SolisClient()
-mqtt = MqttClient()
-ai = AiEngine()
+from ai_engine import AiEngine
+from discovery import publish_discovery
+from mqtt import MqttClient
+from solis_client import SolisClient
 
-publish_discovery(mqtt)
 
-interval = int(os.getenv("POLL_INTERVAL", 3))
+def main():
+    print("SOLID EMS starting...", flush=True)
 
-while True:
-    try:
-        data = client.get_data()
+    poll_interval = int(os.getenv("POLL_INTERVAL", "30"))
 
-        ai_data = ai.analyze(data)
+    client = SolisClient()
+    mqtt = MqttClient()
+    ai = AiEngine()
 
-        payload = {
-            **data,
-            **ai_data
-        }
+    publish_discovery(mqtt)
 
-        mqtt.publish("solid/state", payload)
+    print(f"Polling interval: {poll_interval}s", flush=True)
 
-        print("✅ DATA:", payload)
+    while True:
+        try:
+            data = client.get_data()
 
-    except Exception as e:
-        print("❌ ERROR:", e)
+            if not data:
+                print("No Solis data received, publishing AI/status only", flush=True)
+                data = {}
 
-    time.sleep(interval)
+            ai_data = ai.analyze(data)
+
+            payload = {
+                **data,
+                **ai_data,
+            }
+
+            mqtt.publish("solid/state", payload, retain=True)
+
+            print("Published state:", payload, flush=True)
+
+        except Exception as error:
+            print("MAIN ERROR:", error, flush=True)
+
+        time.sleep(poll_interval)
+
+
+if __name__ == "__main__":
+    main()

@@ -45,7 +45,7 @@ SOLIS_KEY_SECRET=$SOLIS_KEY_SECRET
 
 MQTT_HOST=mqtt
 MQTT_PORT=1883
-POLL_INTERVAL=3
+POLL_INTERVAL=5
 EOF
 
 echo ".env created"
@@ -69,12 +69,9 @@ echo "==================================="
 echo "INSTALL DONE"
 echo "==================================="
 echo ""
-echo "Check containers:"
-echo "  docker ps"
-echo ""
-echo "Check logs:"
-echo "  docker logs solid-core -f"
+echo "docker ps"
+echo "docker logs solid-core -f"
 echo ""
 echo "Home Assistant:"
-echo "  http://$IP:8123"
+echo "http://$IP:8123"
 echo ""

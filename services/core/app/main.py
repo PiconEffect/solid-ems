@@ -2,30 +2,7 @@ import os
 import time
 
 from ai_engine import AiEngine
-from discovery import publish_discovery_dc_power": 0.0,from discovery import publish_discovery
-
-    "raw_power": 0.0,
-    "raw_pac": 0.0,
-    "raw_pow1_kw": 0.0,
-    "raw_pow2_kw": 0.0,
-    "raw_pv_dc_kw": 0.0,
-    "raw_family_load": 0.0,
-    "raw_total_load": 0.0,
-    "raw_grid_psum": 0.0,
-    "raw_battery_power": 0.0,
-}
-
-
-DEFAULT_AI_DATA = {
-    "advice": "Analyse IA en attente de donnees.",
-    "tempo": 0,
-    "tempo_label": "Inconnu",
-    "tempo_tomorrow": 0,
-    "tempo_tomorrow_label": "Inconnu",
-    "pv_forecast_kw": 0.0,
-    "prediction": "Prediction indisponible",
-    "energy_mode": "Indisponible",
-    "battery_strategy": "Indisponible",
+from discovery importisponible",from discovery import publish_discovery
     "estimated_autonomy_h": 0.0,
     "estimated_battery_full_h": 0.0,
     "habit_load_now_kw": 0.0,
@@ -53,12 +30,13 @@ def main():
 
     poll_interval = int(os.getenv("POLL_INTERVAL", "30"))
 
-    solis = SolisClient()
     mqtt = MqttClient()
+    solis = SolisClient()
     ai = AiEngine()
 
     publish_discovery(mqtt)
 
+    print("MQTT Discovery published", flush=True)
     print(f"Polling interval: {poll_interval}s", flush=True)
 
     last_good_solis_data = DEFAULT_SOLIS_DATA.copy()
@@ -99,18 +77,22 @@ def main():
 
             mqtt.publish("solid/state", payload, retain=True)
 
+            print("MQTT publish -> solid/state:", payload, flush=True)
             print("Published state:", payload, flush=True)
 
         except Exception as error:
             print("MAIN ERROR:", error, flush=True)
 
-            payload = {
+            fallback_payload = {
                 **DEFAULT_SOLIS_DATA,
                 **DEFAULT_AI_DATA,
             }
 
-            mqtt.publish("solid/state", payload, retain=True)
-            print("Published fallback state:", payload, flush=True)
+            try:
+                mqtt.publish("solid/state", fallback_payload, retain=True)
+                print("Published fallback state:", fallback_payload, flush=True)
+            except Exception as mqtt_error:
+                print("MQTT fallback publish error:", mqtt_error, flush=True)
 
         time.sleep(poll_interval)
 
@@ -133,3 +115,26 @@ DEFAULT_SOLIS_DATA = {
 
     "pv1_power": 0.0,
     "pv2_power": 0.0,
+    "pv_total_dc_power": 0.0,
+
+    "raw_power": 0.0,
+    "raw_pac": 0.0,
+    "raw_pow1_kw": 0.0,
+    "raw_pow2_kw": 0.0,
+    "raw_pv_dc_kw": 0.0,
+    "raw_family_load": 0.0,
+    "raw_total_load": 0.0,
+    "raw_grid_psum": 0.0,
+    "raw_battery_power": 0.0,
+}
+
+
+DEFAULT_AI_DATA = {
+    "advice": "Analyse IA en attente de donnees.",
+    "tempo": 0,
+    "tempo_label": "Inconnu",
+    "tempo_tomorrow": 0,
+    "tempo_tomorrow_label": "Inconnu",
+    "pv_forecast_kw": 0.0,
+    "prediction": "Prediction indisponible",
+    "energy_mode": "Indisponible",

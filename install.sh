@@ -62,27 +62,9 @@ if [ -z "$SOLIS_USERNAME" ] || [ -z "$SOLIS_PASSWORD" ]; then
   exit 1
 fi
 
-# ----------------------------
-# ✅ TEST LOGIN SOLIS
-# ----------------------------
-echo "🔍 Test connexion Solis..."
-
-RESPONSE=$(curl -s -X POST "https://www.soliscloud.com:13333/v1/api/userLogin" \
-  -H "Content-Type: application/json" \
-  -d "{\"userInfo\":\"$SOLIS_USERNAME\",\"password\":\"$SOLIS_PASSWORD\"}")
-
-SUCCESS=$(echo "$RESPONSE" | grep '"success":true')
-
-if [ -z "$SUCCESS" ]; then
-    echo ""
-    echo "❌ Échec login Solis !"
-    echo "👉 Vérifie ton email/mot de passe"
-    echo "👉 Réponse API:"
-    echo "$RESPONSE"
-    exit 1
-fi
-
-echo "✅ Login Solis valide"
+echo ""
+echo "🔍 Validation des identifiants via l'application..."
+echo "👉 Le test sera effectué au démarrage du service"
 echo ""
 
 # ----------------------------
@@ -96,7 +78,7 @@ MQTT_PORT=1883
 POLL_INTERVAL=3
 EOF
 
-echo "✅ .env créé"
+echo "✅ Fichier .env créé"
 
 # ----------------------------
 # 🚀 Lancement Docker
@@ -117,10 +99,10 @@ echo "==================================="
 echo "✅ INSTALLATION TERMINÉE ✅"
 echo "==================================="
 echo ""
-echo "👉 Containers :"
+echo "👉 Vérifier les containers :"
 echo "   docker ps"
 echo ""
-echo "👉 Logs :"
+echo "👉 Logs (vérifie login Solis ici) :"
 echo "   docker logs solid-core -f"
 echo ""
 echo "👉 Home Assistant :"

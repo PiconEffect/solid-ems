@@ -3,6 +3,7 @@ version: "3.9"
 services:
   solid-core:
     build: ./services/core
+    container_name: solid-core
     restart: unless-stopped
     env_file:
       - .env
@@ -11,13 +12,8 @@ services:
 
   mqtt:
     image: eclipse-mosquitto:2
+    container_name: mosquitto
     restart: unless-stopped
     ports:
       - "1883:1883"
-
-  homeassistant:
-    image: ghcr.io/home-assistant/home-assistant:stable
-    restart: unless-stopped
-    network_mode: host
-    volumes:
-      - ./ha-config:/config
+``

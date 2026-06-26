@@ -1,12 +1,27 @@
 def publish_discovery(mqtt):
-    sensors = ["pv_power", "battery_soc", "grid_power", "load_power"]
+    sensors = {
+        "pv_power": "W",
+        "battery_soc": "%",
+        "grid_power": "W",
+        "load_power": "W",
+        "battery_power": "W",
+        "daily_energy": "kWh",
+        "total_energy": "kWh",
+        "inverter_temp": "°C"
+    }
 
-    for s in sensors:
+    for name, unit in sensors.items():
         config = {
-            "name": f"SOLID {s}",
+            "name": f"SOLID {name}",
             "state_topic": "solid/state",
-            "value_template": f"{{{{ value_json.{s} }}}}"
+            "value_template": f"{{{{ value_json.{name} }}}}",
+            "unit_of_measurement": unit,
+            "device": {
+                "identifiers": ["solid_ems"],
+                "name": "SOLID EMS",
+                "manufacturer": "Custom"
+            }
         }
 
-        topic = f"homeassistant/sensor/solid/{s}/config"
+        topic = f"homeassistant/sensor/solid/{name}/config"
         mqtt.publish(topic, config)

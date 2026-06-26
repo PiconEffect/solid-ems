@@ -1,32 +1,57 @@
+from tempo import Tempo
+
+
 class AiEngine:
+    def __init__(self):
+        self.tempo = Tempo()
 
     def analyze(self, data):
-        advice = []
-
         pv = data.get("pv_power", 0)
         load = data.get("load_power", 0)
         battery = data.get("battery_soc", 0)
         grid = data.get("grid_power", 0)
 
-        # ✅ Surproduction
-        if pv > load and battery > 80:
-            advice.append("✅ Surplus solaire : lance appareils énergivores")
+        tempo_day = self.tempo.get_tempo()
 
-        # ✅ Batterie faible
+        advice = "✅ Système optimal"
+
+        # -----------------------------
+        # 🔵 Gestion Tempo
+        # -----------------------------
+        if tempo_day == "ROUGE":
+            if battery < 80:
+                advice = "🔴 Tempo rouge : conserve batterie"
+            else:
+                advice = "🔴 Tempo rouge : autonomie batterie OK"
+
+        elif tempo_day == "BLEU":
+            if pv > load:
+                advice = "🔵 Tempo bleu : consomme librement"
+            else:
+                advice = "🔵 Tempo bleu : tarif avantageux"
+
+        # -----------------------------
+        # ⚡ Logique énergétique
+        # -----------------------------
+        if pv > load and battery > 70:
+            advice = "☀️ Surplus solaire : lance machines maintenant"
+
         if battery < 20:
-            advice.append("⚠️ Batterie faible : limiter consommation")
+            advice = "⚠️ Batterie faible : limiter consommation"
 
-        # ✅ Injection réseau
         if grid < -500:
-            advice.append("💡 Injection réseau forte : optimiser autoconsommation")
+            advice = "💡 Injection réseau : améliorer autoconsommation"
 
-        # ✅ Charge batterie
-        if battery < 50 and pv > 2000:
-            advice.append("🔋 Bonne production : batterie en charge efficace")
+        # -----------------------------
+        # 🔋 Mini prédiction simple
+        # -----------------------------
+        predicted_full = None
 
-        if not advice:
-            advice.append("✅ Système optimal")
+        if pv > 2000 and battery < 90:
+            predicted_full = "≈ Batterie pleine dans 2-4h"
 
         return {
-            "advice": advice[0]  # version simple (1 message)
+            "advice": advice,
+            "tempo": tempo_day,
+            "prediction": predicted_full if predicted_full else "N/A",
         }

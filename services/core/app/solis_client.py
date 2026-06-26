@@ -15,8 +15,12 @@ class SolisClient:
 
         self.base_url = "https://www.soliscloud.com:13333"
 
+        # ✅ AUTO-DETECTION si pas d’ID
+        if not self.inverter_id:
+            self.inverter_id = self._get_first_inverter()
+
     # -------------------------
-    # 🔐 SIGNATURE API SOLIS
+    # 🔐 SIGNATURE
     # -------------------------
     def _sign(self, body, date, endpoint):
         content_md5 = base64.b64encode(
@@ -26,17 +30,13 @@ class SolisClient:
         sign_str = f"POST\n{content_md5}\napplication/json\n{date}\n{endpoint}"
 
         signature = base64.b64encode(
-            hmac.new(
-                self.key_secret.encode(),
-                sign_str.encode(),
-                hashlib.sha1
-            ).digest()
+            hmac.new(self.key_secret.encode(), sign_str.encode(), hashlib.sha1).digest()
         ).decode()
 
         return content_md5, signature
 
     # -------------------------
-    # 📡 REQUETE API
+    # 📡 POST API
     # -------------------------
     def _post(self, endpoint, payload):
         url = f"{self.base_url}{endpoint}"
@@ -54,14 +54,8 @@ class SolisClient:
         }
 
         try:
-            response = requests.post(
-                url,
-                headers=headers,
-                data=body,
-                timeout=10
-            )
+            response = requests.post(url, headers=headers, data=body, timeout=10)
 
-            # ✅ DEBUG HTTP
             if response.status_code != 200:
                 print(f"❌ HTTP {response.status_code}: {response.text}")
                 return None
@@ -73,12 +67,46 @@ class SolisClient:
             return None
 
     # -------------------------
+    # 🚀 AUTO DISCOVERY INVERTER
+    # -------------------------
+    def _get_first_inverter(self):
+        print("🔍 Auto-detect inverter...")
+
+        payload = {
+            "pageNo": 1,
+            "pageSize": 10
+        }
+
+        data = self._post("/v1/api/inverterList", payload)
+
+        if not data or not data.get("success"):
+            print("❌ Unable to fetch inverter list:", data)
+            return None
+
+        try:
+            records = data["data"]["page"]["records"]
+
+            if not records:
+                print("❌ No inverter found in account")
+                return None
+
+            inverter_id = records[0]["id"]
+
+            print(f"✅ Inverter auto-detected: {inverter_id}")
+
+            return inverter_id
+
+        except Exception as e:
+            print("❌ Error parsing inverter list:", e)
+            return None
+
+    # -------------------------
     # ⚡ GET DATA
     # -------------------------
     def get_data(self):
         try:
             if not self.inverter_id:
-                print("❌ Missing SOLIS_INVERTER_ID")
+                print("❌ No inverter ID available")
                 return {}
 
             payload = {
@@ -87,13 +115,8 @@ class SolisClient:
 
             data = self._post("/v1/api/inverterDetail", payload)
 
-            # ✅ DEBUG COMPLET
             if data is None:
                 print("❌ API returned None")
-                return {}
-
-            if not isinstance(data, dict):
-                print("❌ Invalid API format:", data)
                 return {}
 
             if not data.get("success"):

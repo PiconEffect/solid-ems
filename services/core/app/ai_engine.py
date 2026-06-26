@@ -138,20 +138,41 @@ class AiEngine:
 
     # -------------------------
     # PV string diagnostics
+    # IMPORTANT:
+    # No direct comparison between string 1 and string 2.
+    # Each string is compared only to its own historical behavior.
     # -------------------------
+    def _average_string_for_hour(self, string_key, target_hour):
+        history = self._load_history()
+
+        values = [
+            self._to_float(item.get(string_key))
+            for item in history
+            if item.get("hour") == target_hour
+        ]
+
+        values = [value for value in values if value > 0.2]
+
+        if not values:
+            return 0.0
+
+        return sum(values) / len(values)
+
     def _analyze_pv_strings(self, pv1_power, pv2_power, pv_total_dc_power, pv_power):
         pv1 = self._to_float(pv1_power)
         pv2 = self._to_float(pv2_power)
         pv_dc = self._to_float(pv_total_dc_power)
         pv_ac = self._to_float(pv_power)
 
+        now_hour = datetime.now().hour
+
         status = "OK"
-        alert = "Strings PV equilibrees"
-        imbalance_pct = 0.0
+        alert = "Strings PV conformes a leur comportement habituel"
+        max_deviation_pct = 0.0
         priority = 0
 
-        # Not enough sun or data to diagnose reliably.
-        if pv_dc < 0.5 and pv_ac < 0.5:
+        # No reliable diagnostic when global production is low.
+        if pv_dc < 0.8 and pv_ac < 0.8:
             return {
                 "pv_string_status": "LOW_LIGHT",
                 "pv_string_alert": "Production trop faible pour diagnostiquer les strings",
@@ -159,48 +180,77 @@ class AiEngine:
                 "pv_string_priority": 0,
             }
 
-        max_string = max(pv1, pv2)
-        min_string = min(pv1, pv2)
+        # Individual historical reference per string and per hour.
+        pv1_reference = self._average_string_for_hour("pv1_power", now_hour)
+        pv2_reference = self._average_string_for_hour("pv2_power", now_hour)
 
-        if max_string > 0:
-            imbalance_pct = abs(pv1 - pv2) / max_string * 100
+        # Not enough history yet.
+        if pv1_reference <= 0 or pv2_reference <= 0:
+            return {
+                "pv_string_status": "LEARNING",
+                "pv_string_alert": "Apprentissage en cours : historique strings PV insuffisant",
+                "pv_string_imbalance_pct": 0.0,
+                "pv_string_priority": 0,
+            }
 
-        # Case: one string looks dead while the other produces.
-        if max_string > 1.0 and min_string < 0.15:
+        pv1_ratio = pv1 / pv1_reference if pv1_reference > 0 else 1
+        pv2_ratio = pv2 / pv2_reference if pv2_reference > 0 else 1
+
+        pv1_drop_pct = max(0, (1 - pv1_ratio) * 100)
+        pv2_drop_pct = max(0, (1 - pv2_ratio) * 100)
+
+        max_deviation_pct = max(pv1_drop_pct, pv2_drop_pct)
+
+        # String nearly dead compared to its own historical behavior.
+        if pv1_reference > 1.0 and pv1 < 0.15:
             status = "CRITICAL"
-            if pv1 < pv2:
-                alert = "Possible defaut String PV 1 : production quasi nulle"
-            else:
-                alert = "Possible defaut String PV 2 : production quasi nulle"
+            alert = "Possible defaut String PV 1 : production quasi nulle par rapport a son historique"
             priority = 6
 
-        # Strong imbalance.
-        elif imbalance_pct >= 40 and abs(pv1 - pv2) >= 1.0:
-            status = "WARNING"
-            if pv1 < pv2:
-                alert = "String PV 1 nettement plus faible que String PV 2"
-            else:
-                alert = "String PV 2 nettement plus faible que String PV 1"
-            priority = 4
+        elif pv2_reference > 1.0 and pv2 < 0.15:
+            status = "CRITICAL"
+            alert = "Possible defaut String PV 2 : production quasi nulle par rapport a son historique"
+            priority = 6
 
-        # Moderate imbalance.
-        elif imbalance_pct >= 25 and abs(pv1 - pv2) >= 0.6:
+        # Strong individual drop.
+        elif pv1_drop_pct >= 45 and pv1_reference > 0.8:
+            status = "WARNING"
+            alert = "String PV 1 nettement sous son niveau habituel : verifier ombrage, connectique ou panneau"
+            priority = 5
+
+        elif pv2_drop_pct >= 45 and pv2_reference > 0.8:
+            status = "WARNING"
+            alert = "String PV 2 nettement sous son niveau habituel : verifier ombrage, connectique ou panneau"
+            priority = 5
+
+        # Moderate individual drop.
+        elif pv1_drop_pct >= 30 and pv1_reference > 0.8:
             status = "WATCH"
-            alert = "Ecart notable entre les deux strings PV, a surveiller"
+            alert = "String PV 1 sous son niveau habituel : tendance a surveiller"
             priority = 3
 
-        # AC/DC consistency check.
+        elif pv2_drop_pct >= 30 and pv2_reference > 0.8:
+            status = "WATCH"
+            alert = "String PV 2 sous son niveau habituel : tendance a surveiller"
+            priority = 3
+
+        # DC / AC consistency check.
         if pv_dc > 1.0 and pv_ac > 0:
-            ratio = pv_ac / pv_dc
-            if ratio < 0.65:
+            ac_dc_ratio = pv_ac / pv_dc
+
+            if ac_dc_ratio < 0.65:
                 status = "WARNING"
                 alert = "Ecart important entre puissance DC panneaux et puissance AC onduleur"
                 priority = max(priority, 4)
+                max_deviation_pct = max(
+                    max_deviation_pct,
+                    round((1 - ac_dc_ratio) * 100, 1),
+                )
 
         return {
             "pv_string_status": status,
             "pv_string_alert": alert,
-            "pv_string_imbalance_pct": self._safe_round(imbalance_pct, 1),
+            "pv_string_imbalance_pct": self._safe_round(max_deviation_pct, 1),
             "pv_string_priority": priority,
         }
 
@@ -297,7 +347,6 @@ class AiEngine:
         advice = []
         priority = 0
 
-        # PV string diagnostic has high priority if critical.
         pv_string_priority = pv_string_analysis.get("pv_string_priority", 0)
         pv_string_status = pv_string_analysis.get("pv_string_status", "OK")
         pv_string_alert = pv_string_analysis.get("pv_string_alert", "")

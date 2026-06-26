@@ -2,7 +2,59 @@ import base64
 import hashlib
 import hmac
 import json
-import os except (TypeError, ValueError):import os
+import os        ).decode()import os
+
+        sign_str = f"POST\n{content_md5}\napplication/json\n{date}\n{endpoint}"
+
+        signature = base64.b64encode(
+            hmac.new(
+                self.key_secret.encode(),
+                sign_str.encode(),
+                hashlib.sha1,
+            ).digest()
+        ).decode()
+
+        return content_md5, signature
+
+    def _post(self, endpoint, payload):
+        url = f"{self.base_url}{endpoint}"
+
+        body = json.dumps(payload)
+        date = formatdate(usegmt=True)
+
+        content_md5, signature = self._sign(body, date, endpoint)
+
+        headers = {
+            "Content-Type": "application/json",
+            "Content-MD5": content_md5,
+            "Date": date,
+            "Authorization": f"API {self.key_id}:{signature}",
+        }
+
+        try:
+            response = requests.post(
+                url,
+                headers=headers,
+                data=body,
+                timeout=self.timeout,
+            )
+
+            if response.status_code != 200:
+                print(f"HTTP {response.status_code}: {response.text}", flush=True)
+                return None
+
+            return response.json()
+
+        except Exception as error:
+            print("HTTP ERROR:", error, flush=True)
+            return None
+
+    def _to_float(self, value, default=0.0):
+        try:
+            if value is None:
+                return default
+            return float(value)
+        except (TypeError, ValueError):
             return default
 
     def _map_data(self, d):
@@ -221,55 +273,3 @@ class SolisClient:
     def _sign(self, body, date, endpoint):
         content_md5 = base64.b64encode(
             hashlib.md5(body.encode("utf-8")).digest()
-        ).decode()
-
-        sign_str = f"POST\n{content_md5}\napplication/json\n{date}\n{endpoint}"
-
-        signature = base64.b64encode(
-            hmac.new(
-                self.key_secret.encode(),
-                sign_str.encode(),
-                hashlib.sha1,
-            ).digest()
-        ).decode()
-
-        return content_md5, signature
-
-    def _post(self, endpoint, payload):
-        url = f"{self.base_url}{endpoint}"
-
-        body = json.dumps(payload)
-        date = formatdate(usegmt=True)
-
-        content_md5, signature = self._sign(body, date, endpoint)
-
-        headers = {
-            "Content-Type": "application/json",
-            "Content-MD5": content_md5,
-            "Date": date,
-            "Authorization": f"API {self.key_id}:{signature}",
-        }
-
-        try:
-            response = requests.post(
-                url,
-                headers=headers,
-                data=body,
-                timeout=self.timeout,
-            )
-
-            if response.status_code != 200:
-                print(f"HTTP {response.status_code}: {response.text}", flush=True)
-                return None
-
-            return response.json()
-
-        except Exception as error:
-            print("HTTP ERROR:", error, flush=True)
-            return None
-
-    def _to_float(self, value, default=0.0):
-        try:
-            if value is None:
-                return default
-            return float(value)

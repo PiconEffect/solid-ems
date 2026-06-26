@@ -1,5 +1,6 @@
 import json
 import os
+
 import paho.mqtt.client as mqtt
 
 
@@ -15,8 +16,15 @@ class MqttClient:
         print(f"MQTT connected to {self.host}:{self.port}", flush=True)
 
     def publish(self, topic, payload, retain=False):
-        self.client.publish(
+        message = json.dumps(payload)
+
+        result = self.client.publish(
             topic,
-            json.dumps(payload),
+            message,
+            qos=0,
             retain=retain,
         )
+
+        print(f"MQTT publish -> {topic}: {message}", flush=True)
+
+        return result

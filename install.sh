@@ -1,7 +1,22 @@
 #!/bin/bash
 
 echo "==================================="
-echo "   SOLID EMS INSTALL V10"
+I | awk '{print $1}')echo "   SOLID EMS INSTALL V10"
+
+echo ""
+echo "==================================="
+echo "INSTALL DONE"
+echo "==================================="
+echo ""
+echo "Check containers:"
+echo "  docker ps"
+echo ""
+echo "Check logs:"
+echo "  docker logs solid-core -f"
+echo ""
+echo "Home Assistant:"
+echo "  http://$IP:8123"
+echo ""
 echo "==================================="
 echo ""
 
@@ -24,8 +39,31 @@ echo ""
 # Solis API inputs
 # ----------------------------
 read -r -p "Solis Key ID: " SOLIS_KEY_ID
-read -r -s -p "Solis Key Secret: " SOLIS_KEY_SECRET
-echo ""
+
+echo -n "Solis Key Secret: "
+SOLIS_KEY_SECRET=""
+
+while true; do
+    IFS= read -r -s -n1 char
+
+    # Enter key
+    if [[ -z "$char" ]]; then
+        echo ""
+        break
+    fi
+
+    # Backspace
+    if [[ "$char" == $'\x7f' ]]; then
+        if [ -n "$SOLIS_KEY_SECRET" ]; then
+            SOLIS_KEY_SECRET="${SOLIS_KEY_SECRET%?}"
+            echo -ne "\b \b"
+        fi
+    else
+        SOLIS_KEY_SECRET="${SOLIS_KEY_SECRET}${char}"
+        echo -n "*"
+    fi
+done
+
 echo ""
 
 # ----------------------------
@@ -93,19 +131,3 @@ docker compose up -d --build
 # ----------------------------
 # End
 # ----------------------------
-IP=$(hostname -I | awk '{print $1}')
-
-echo ""
-echo "==================================="
-echo "INSTALL DONE"
-echo "==================================="
-echo ""
-echo "Check containers:"
-echo "  docker ps"
-echo ""
-echo "Check logs:"
-echo "  docker logs solid-core -f"
-echo ""
-echo "Home Assistant:"
-echo "  http://$IP:8123"
-echo ""

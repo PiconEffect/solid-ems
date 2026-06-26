@@ -1,57 +1,63 @@
 from tempo import Tempo
+from weather import Weather
 
 
 class AiEngine:
     def __init__(self):
         self.tempo = Tempo()
+        self.weather = Weather()
 
     def analyze(self, data):
         pv = data.get("pv_power", 0)
         load = data.get("load_power", 0)
         battery = data.get("battery_soc", 0)
-        grid = data.get("grid_power", 0)
 
         tempo_day = self.tempo.get_tempo()
+        weather = self.weather.get_forecast()
 
+        radiation = weather["radiation"]
+        cloud = weather["cloud"]
+
+        # -----------------------
+        # ☀️ estimation PV simple
+        # -----------------------
+        pv_forecast = radiation * (1 - cloud / 100)
+
+        # normalisation approximative
+        pv_estimated_kw = round(pv_forecast / 200, 1)
+
+        # -----------------------
+        # 🔋 prédiction batterie
+        # -----------------------
+        prediction = "N/A"
+
+        if pv_estimated_kw > 3:
+            prediction = "🔋 Batterie pleine vers midi"
+        elif pv_estimated_kw > 1:
+            prediction = "🔋 Charge partielle batterie"
+        else:
+            prediction = "⚠️ Faible production solaire"
+
+        # -----------------------
+        # 💡 conseil intelligent
+        # -----------------------
         advice = "✅ Système optimal"
 
-        # -----------------------------
-        # 🔵 Gestion Tempo
-        # -----------------------------
         if tempo_day == "ROUGE":
-            if battery < 80:
-                advice = "🔴 Tempo rouge : conserve batterie"
-            else:
-                advice = "🔴 Tempo rouge : autonomie batterie OK"
+            advice = "🔴 Tempo rouge : éviter consommation"
 
-        elif tempo_day == "BLEU":
-            if pv > load:
-                advice = "🔵 Tempo bleu : consomme librement"
-            else:
-                advice = "🔵 Tempo bleu : tarif avantageux"
-
-        # -----------------------------
-        # ⚡ Logique énergétique
-        # -----------------------------
-        if pv > load and battery > 70:
-            advice = "☀️ Surplus solaire : lance machines maintenant"
+        elif tempo_day == "BLEU" and pv_estimated_kw > 3:
+            advice = "☀️ Idéal pour lancer appareils"
 
         if battery < 20:
-            advice = "⚠️ Batterie faible : limiter consommation"
+            advice = "⚠️ Batterie faible"
 
-        if grid < -500:
-            advice = "💡 Injection réseau : améliorer autoconsommation"
-
-        # -----------------------------
-        # 🔋 Mini prédiction simple
-        # -----------------------------
-        predicted_full = None
-
-        if pv > 2000 and battery < 90:
-            predicted_full = "≈ Batterie pleine dans 2-4h"
+        if pv > load and battery > 70:
+            advice = "🔥 Surplus solaire : consommer maintenant"
 
         return {
             "advice": advice,
             "tempo": tempo_day,
-            "prediction": predicted_full if predicted_full else "N/A",
+            "pv_forecast_kw": pv_estimated_kw,
+            "prediction": prediction,
         }

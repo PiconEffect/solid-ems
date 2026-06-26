@@ -30,19 +30,15 @@ read -p "Solis Inverter ID: " SOLIS_INVERTER_ID
 echo ""
 
 # ----------------------------
-# ✅ Vérification champs
+# ✅ VALIDATION
 # ----------------------------
 if [ -z "$SOLIS_KEY_ID" ] || [ -z "$SOLIS_KEY_SECRET" ] || [ -z "$SOLIS_INVERTER_ID" ]; then
   echo "ERROR: missing input"
   exit 1
 fi
 
-echo ""
-echo "Configuration saved (API mode)"
-echo ""
-
 # ----------------------------
-# ✅ Création .env
+# ✅ CREATE .env
 # ----------------------------
 cat <<EOF > .env
 SOLIS_KEY_ID=$SOLIS_KEY_ID
@@ -57,7 +53,7 @@ EOF
 echo ".env created"
 
 # ----------------------------
-# 🚀 Lancement Docker
+# 🚀 START
 # ----------------------------
 echo ""
 echo "Starting services..."

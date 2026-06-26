@@ -145,7 +145,7 @@ class SolisClient:
                 "pv_power": d.get("power", 0),
                 "battery_soc": d.get("batteryCapacitySoc", 0),
                 "grid_power": d.get("psum", 0),
-                "load_power": d.get("consumptionPower", 0),
+                "load_power": d.get("familyLoadPower", 0),
                 "battery_power": d.get("batteryPower", 0),
                 "daily_energy": d.get("eToday", 0),
                 "total_energy": d.get("eTotal", 0),

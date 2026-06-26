@@ -9,6 +9,8 @@ services:
       - .env
     depends_on:
       - mqtt
+    volumes:
+      - solid-data:/data
 
   mqtt:
     image: eclipse-mosquitto:2
@@ -18,3 +20,6 @@ services:
       - "1883:1883"
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+volumes:
+  solid-data:

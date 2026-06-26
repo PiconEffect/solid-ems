@@ -92,6 +92,7 @@ def publish_discovery(mqtt):
             "value_template": f"{{{{ value_json.{key} }}}}",
             "device": device,
             "icon": meta.get("icon"),
+            "force_update": True,
         }
 
         if meta.get("unit"):

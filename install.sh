@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "==================================="
-echo "   SOLID EMS INSTALL V7 (AUTO)"
+echo "   SOLID EMS INSTALL V8 AI"
 echo "==================================="
 echo ""
 
@@ -24,7 +24,30 @@ echo ""
 # Solis API inputs
 # ----------------------------
 read -p "Solis Key ID: " SOLIS_KEY_ID
-read -p "Solis Key Secret: " SOLIS_KEY_SECRET
+
+echo -n "Solis Key Secret: "
+SOLIS_KEY_SECRET=""
+
+while true; do
+    IFS= read -r -s -n1 char
+
+    # Enter
+    if [[ $char == "" ]]; then
+        echo ""
+        break
+    fi
+
+    # Backspace
+    if [[ $char == $'\x7f' ]]; then
+        if [ -n "$SOLIS_KEY_SECRET" ]; then
+            SOLIS_KEY_SECRET=${SOLIS_KEY_SECRET%?}
+            echo -ne "\b \b"
+        fi
+    else
+        SOLIS_KEY_SECRET+="$char"
+        echo -n "*"
+    fi
+done
 
 echo ""
 
@@ -46,10 +69,15 @@ SOLIS_KEY_SECRET=$SOLIS_KEY_SECRET
 MQTT_HOST=mqtt
 MQTT_PORT=1883
 POLL_INTERVAL=30
+
+BATTERY_CAPACITY_KWH=30
+HISTORY_FILE=/data/solid_ems_history.json
+HISTORY_DAYS=14
 EOF
 
 echo ".env created"
 echo "Polling interval set to 30 seconds"
+echo "AI history enabled"
 echo ""
 
 # ----------------------------

@@ -1,0 +1,616 @@
+title: SOLID EMS
+views:
+  - title: Energie
+    path: energy
+    icon: mdi:flash
+    type: masonry
+    cards:
+      - type: markdown
+        content: >
+          # SOLID EMS
+
+
+          Supervision solaire intelligente de l'installation.
+
+
+          **PV :** {{ states('sensor.solid_ems_solid_pv_power') }} kW  
+
+          **Maison réelle :** {{ states('sensor.solid_ems_solid_home_load') }}
+          kW  
+
+          **Batterie :** {{ states('sensor.solid_ems_solid_battery_soc') }} %  
+
+          **Réseau :** {{ states('sensor.solid_ems_solid_grid_power') }} kW
+      - type: horizontal-stack
+        cards:
+          - type: custom:button-card
+            entity: sensor.solid_ems_solid_tempo
+            show_icon: true
+            show_name: true
+            show_state: false
+            show_label: true
+            icon: mdi:calendar-today
+            name: Aujourd'hui
+            label: |
+              [[[
+                const code = states['sensor.solid_ems_solid_tempo']?.state;
+                const labelRaw = states['sensor.panneaux_solaires_solid_ems_solid_tempo_label']?.state;
+                const label = labelRaw ? labelRaw.toLowerCase() : '';
+
+                if (label === 'bleu' || code === '1') return 'Tempo Bleu';
+                if (label === 'blanc' || code === '2') return 'Tempo Blanc';
+                if (label === 'rouge' || code === '3') return 'Tempo Rouge';
+
+                return 'Tempo inconnu';
+              ]]]
+            styles:
+              card:
+                - border-radius: 24px
+                - padding: 20px
+                - height: 130px
+                - box-shadow: 0 8px 22px rgba(0,0,0,0.25)
+                - color: |
+                    [[[
+                      const code = states['sensor.solid_ems_solid_tempo']?.state;
+                      const labelRaw = states['sensor.panneaux_solaires_solid_ems_solid_tempo_label']?.state;
+                      const label = labelRaw ? labelRaw.toLowerCase() : '';
+
+                      if (label === 'blanc' || code === '2') return '#111111';
+                      return '#ffffff';
+                    ]]]
+                - background: |
+                    [[[
+                      const code = states['sensor.solid_ems_solid_tempo']?.state;
+                      const labelRaw = states['sensor.panneaux_solaires_solid_ems_solid_tempo_label']?.state;
+                      const label = labelRaw ? labelRaw.toLowerCase() : '';
+
+                      if (label === 'bleu' || code === '1') return 'linear-gradient(135deg, #005BBB, #0096FF)';
+                      if (label === 'blanc' || code === '2') return 'linear-gradient(135deg, #FFFFFF, #E8E8E8)';
+                      if (label === 'rouge' || code === '3') return 'linear-gradient(135deg, #B00020, #FF1744)';
+
+                      return 'linear-gradient(135deg, #444444, #111111)';
+                    ]]]
+              icon:
+                - width: 42px
+                - color: |
+                    [[[
+                      const code = states['sensor.solid_ems_solid_tempo']?.state;
+                      const labelRaw = states['sensor.panneaux_solaires_solid_ems_solid_tempo_label']?.state;
+                      const label = labelRaw ? labelRaw.toLowerCase() : '';
+
+                      if (label === 'blanc' || code === '2') return '#111111';
+                      return '#ffffff';
+                    ]]]
+              name:
+                - font-size: 18px
+                - font-weight: 700
+                - justify-self: start
+              label:
+                - font-size: 22px
+                - font-weight: 800
+                - justify-self: start
+                - margin-top: 6px
+          - type: custom:button-card
+            entity: sensor.panneaux_solaires_solid_ems_solid_tempo_tomorrow
+            show_icon: true
+            show_name: true
+            show_state: false
+            show_label: true
+            icon: mdi:calendar-arrow-right
+            name: Demain
+            label: |
+              [[[
+                const code = states['sensor.panneaux_solaires_solid_ems_solid_tempo_tomorrow']?.state;
+                const labelRaw = states['sensor.panneaux_solaires_solid_ems_solid_tempo_tomorrow_label']?.state;
+                const label = labelRaw ? labelRaw.toLowerCase() : '';
+
+                if (label === 'bleu' || code === '1') return 'Tempo Bleu';
+                if (label === 'blanc' || code === '2') return 'Tempo Blanc';
+                if (label === 'rouge' || code === '3') return 'Tempo Rouge';
+
+                return 'Tempo inconnu';
+              ]]]
+            styles:
+              card:
+                - border-radius: 24px
+                - padding: 20px
+                - height: 130px
+                - box-shadow: 0 8px 22px rgba(0,0,0,0.25)
+                - color: |
+                    [[[
+                      const code = states['sensor.panneaux_solaires_solid_ems_solid_tempo_tomorrow']?.state;
+                      const labelRaw = states['sensor.panneaux_solaires_solid_ems_solid_tempo_tomorrow_label']?.state;
+                      const label = labelRaw ? labelRaw.toLowerCase() : '';
+
+                      if (label === 'blanc' || code === '2') return '#111111';
+                      return '#ffffff';
+                    ]]]
+                - background: |
+                    [[[
+                      const code = states['sensor.panneaux_solaires_solid_ems_solid_tempo_tomorrow']?.state;
+                      const labelRaw = states['sensor.panneaux_solaires_solid_ems_solid_tempo_tomorrow_label']?.state;
+                      const label = labelRaw ? labelRaw.toLowerCase() : '';
+
+                      if (label === 'bleu' || code === '1') return 'linear-gradient(135deg, #005BBB, #0096FF)';
+                      if (label === 'blanc' || code === '2') return 'linear-gradient(135deg, #FFFFFF, #E8E8E8)';
+                      if (label === 'rouge' || code === '3') return 'linear-gradient(135deg, #B00020, #FF1744)';
+
+                      return 'linear-gradient(135deg, #555555, #222222)';
+                    ]]]
+              icon:
+                - width: 42px
+                - color: |
+                    [[[
+                      const code = states['sensor.panneaux_solaires_solid_ems_solid_tempo_tomorrow']?.state;
+                      const labelRaw = states['sensor.panneaux_solaires_solid_ems_solid_tempo_tomorrow_label']?.state;
+                      const label = labelRaw ? labelRaw.toLowerCase() : '';
+
+                      if (label === 'blanc' || code === '2') return '#111111';
+                      return '#ffffff';
+                    ]]]
+              name:
+                - font-size: 18px
+                - font-weight: 700
+                - justify-self: start
+              label:
+                - font-size: 22px
+                - font-weight: 800
+                - justify-self: start
+                - margin-top: 6px
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+          - type: tile
+            entity: sensor.solid_ems_solid_pv_power
+            name: Production PV
+            icon: mdi:solar-power
+            color: amber
+          - type: tile
+            entity: sensor.solid_ems_solid_home_load
+            name: Maison réelle
+            icon: mdi:home-lightning-bolt
+            color: blue
+          - type: tile
+            entity: sensor.solid_ems_solid_battery_soc
+            name: Batterie
+            icon: mdi:battery
+            color: green
+          - type: tile
+            entity: sensor.solid_ems_solid_grid_power
+            name: Réseau
+            icon: mdi:transmission-tower
+            color: red
+      - type: custom:power-flow-card-plus
+        title: Flux d'énergie
+        entities:
+          solar:
+            entity: sensor.solid_ems_solid_pv_power
+            name: PV
+            display_zero_state: true
+            color_icon: true
+            color_value: true
+            invert_state: false
+            use_metadata: false
+          battery:
+            entity: sensor.solid_ems_solid_battery_power
+            state_of_charge: sensor.solid_ems_solid_battery_soc
+            name: Batterie
+            display_zero_state: true
+            color_icon: true
+            color_value: true
+            invert_state: true
+            use_metadata: false
+          grid:
+            entity: sensor.solid_ems_solid_grid_power
+            name: Réseau
+            display_zero_state: true
+            color_icon: true
+            color_value: true
+            invert_state: false
+            use_metadata: false
+          home:
+            entity: sensor.solid_ems_solid_home_load
+            name: Maison réelle
+            display_zero_state: true
+            color_icon: true
+            color_value: true
+            use_metadata: false
+            override_state: true
+            subtract_individual: false
+        clickable_entities: true
+        display_zero_lines:
+          mode: show
+          transparency: 35
+        watt_threshold: 1
+        kw_decimals: 2
+        w_decimals: 0
+        min_flow_rate: 0.75
+        max_flow_rate: 6
+        use_new_flow_rate_model: true
+      - type: grid
+        columns: 3
+        square: false
+        cards:
+          - type: tile
+            entity: sensor.panneaux_solaires_solid_ems_solid_pv_string_1_power
+            name: String PV 1
+            icon: mdi:solar-panel
+            color: amber
+          - type: tile
+            entity: sensor.panneaux_solaires_solid_ems_solid_pv_string_2_power
+            name: String PV 2
+            icon: mdi:solar-panel-large
+            color: amber
+          - type: tile
+            entity: sensor.panneaux_solaires_solid_ems_solid_pv_dc_total_power
+            name: Total DC PV
+            icon: mdi:solar-power-variant
+            color: yellow
+      - type: markdown
+        content: >
+          ## Diagnostic IA strings PV
+
+
+          **État strings PV :**  
+
+          {{ states('sensor.panneaux_solaires_solid_ems_solid_pv_string_status')
+          }}
+
+
+          **Alerte strings PV :**  
+
+          {{ states('sensor.panneaux_solaires_solid_ems_solid_pv_string_alert')
+          }}
+
+
+          **Écart individuel max :**  
+
+          {{
+          states('sensor.panneaux_solaires_solid_ems_solid_pv_string_individual_deviation')
+          }} %
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: Performance solaire - % capacité max
+          show_states: true
+          colorize_states: true
+        graph_span: 24h
+        update_interval: 30s
+        yaxis:
+          - min: 0
+            max: 100
+            decimals: 0
+        apex_config:
+          chart:
+            height: 300
+            toolbar:
+              show: false
+          stroke:
+            width: 4
+            curve: smooth
+          fill:
+            type: gradient
+            gradient:
+              shadeIntensity: 0.4
+              opacityFrom: 0.85
+              opacityTo: 0.15
+          dataLabels:
+            enabled: false
+          grid:
+            show: true
+          tooltip:
+            enabled: true
+        series:
+          - entity: sensor.solid_ems_solid_pv_power
+            name: Utilisation PV
+            unit: "%"
+            color: "#FFD600"
+            type: area
+            transform: return Math.min(100, Math.round((x / 9.557) * 100));
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: Strings photovoltaïques - 24h
+          show_states: true
+          colorize_states: true
+        graph_span: 24h
+        update_interval: 30s
+        apex_config:
+          chart:
+            height: 300
+            toolbar:
+              show: false
+          stroke:
+            width: 3
+            curve: smooth
+          dataLabels:
+            enabled: false
+          grid:
+            show: true
+          legend:
+            show: true
+          tooltip:
+            enabled: true
+        yaxis:
+          - decimals: 1
+        series:
+          - entity: sensor.panneaux_solaires_solid_ems_solid_pv_string_1_power
+            name: String PV 1
+            color: "#FFA000"
+            type: area
+          - entity: sensor.panneaux_solaires_solid_ems_solid_pv_string_2_power
+            name: String PV 2
+            color: "#FFD600"
+            type: area
+          - entity: sensor.panneaux_solaires_solid_ems_solid_pv_dc_total_power
+            name: Total DC PV
+            color: "#FF6F00"
+            type: line
+      - type: gauge
+        entity: sensor.solid_ems_solid_battery_soc
+        name: Niveau batterie
+        min: 0
+        max: 100
+        needle: true
+        severity:
+          green: 60
+          yellow: 30
+          red: 0
+      - type: markdown
+        content: >
+          ## Assistant énergétique
+
+
+          **Conseil prioritaire :**  
+
+          {{ states('sensor.solid_ems_solid_ai_advice') }}
+
+
+          **Mode actuel :**  
+
+          {{ states('sensor.panneaux_solaires_solid_ems_solid_energy_mode') }}
+
+
+          **Stratégie batterie :**  
+
+          {{ states('sensor.panneaux_solaires_solid_ems_solid_battery_strategy')
+          }}
+
+
+          **Confiance IA :**  
+
+          {{
+          states('sensor.panneaux_solaires_solid_ems_solid_ai_advice_confidence')
+          }}
+
+
+          **Priorité :**  
+
+          {{
+          states('sensor.panneaux_solaires_solid_ems_solid_ai_advice_priority')
+          }}
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+          - type: tile
+            entity: sensor.panneaux_solaires_solid_ems_solid_estimated_autonomy
+            name: Autonomie estimée
+            icon: mdi:timer-sand
+            color: green
+          - type: tile
+            entity: sensor.panneaux_solaires_solid_ems_solid_estimated_battery_full
+            name: Batterie pleine dans
+            icon: mdi:battery-clock
+            color: amber
+          - type: tile
+            entity: sensor.panneaux_solaires_solid_ems_solid_habit_load_now
+            name: Habitude conso actuelle
+            icon: mdi:chart-bell-curve
+            color: blue
+          - type: tile
+            entity: sensor.panneaux_solaires_solid_ems_solid_habit_load_next_6h
+            name: Habitude conso 6h
+            icon: mdi:chart-timeline-variant
+            color: purple
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: Puissances instantanées - 24h
+          show_states: true
+          colorize_states: true
+        graph_span: 24h
+        update_interval: 30s
+        apex_config:
+          chart:
+            height: 340
+            toolbar:
+              show: false
+          stroke:
+            width: 3
+            curve: smooth
+          dataLabels:
+            enabled: false
+          grid:
+            show: true
+          legend:
+            show: true
+          tooltip:
+            enabled: true
+        yaxis:
+          - decimals: 1
+        series:
+          - entity: sensor.solid_ems_solid_pv_power
+            name: PV
+            color: "#FFD600"
+            type: area
+          - entity: sensor.solid_ems_solid_home_load
+            name: Maison réelle
+            color: "#2196F3"
+            type: line
+          - entity: sensor.solid_ems_solid_battery_power
+            name: Batterie
+            color: "#00A86B"
+            type: line
+          - entity: sensor.solid_ems_solid_grid_power
+            name: Réseau
+            color: "#F44336"
+            type: line
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+          - type: tile
+            entity: sensor.solid_ems_solid_daily_energy
+            name: Energie du jour
+            icon: mdi:counter
+            color: amber
+          - type: tile
+            entity: sensor.solid_ems_solid_total_energy
+            name: Energie totale
+            icon: mdi:counter
+            color: green
+      - type: markdown
+        content: >
+          ## Prévisions
+
+
+          **Prévision générale :**  
+
+          {{ states('sensor.solid_ems_solid_prediction') }}
+
+
+          **Prévision PV :**  
+
+          {{ states('sensor.solid_ems_solid_pv_forecast') }} kW
+
+
+          **Tempo aujourd’hui :**  
+
+          {{ states('sensor.panneaux_solaires_solid_ems_solid_tempo_label') }}
+
+
+          **Tempo demain :**  
+
+          {{
+          states('sensor.panneaux_solaires_solid_ems_solid_tempo_tomorrow_label')
+          }}
+      - type: markdown
+        content: >
+          ## Vérification données Solis
+
+
+          ### Données principales
+
+
+          **PV utilisé dashboard :**  
+
+          {{ states('sensor.solid_ems_solid_pv_power') }} kW
+
+
+          **Maison réelle Solis :**  
+
+          {{ states('sensor.solid_ems_solid_home_load') }} kW
+
+
+          **Batterie Solis :**  
+
+          {{ states('sensor.solid_ems_solid_battery_power') }} kW
+
+
+          **Réseau Solis :**  
+
+          {{ states('sensor.solid_ems_solid_grid_power') }} kW
+
+
+          **Batterie SOC :**  
+
+          {{ states('sensor.solid_ems_solid_battery_soc') }} %
+
+
+          ---
+
+
+          ### Strings photovoltaïques
+
+
+          **PV String 1 Power :**  
+
+          {{
+          states('sensor.panneaux_solaires_solid_ems_solid_pv_string_1_power')
+          }} kW
+
+
+          **PV String 2 Power :**  
+
+          {{
+          states('sensor.panneaux_solaires_solid_ems_solid_pv_string_2_power')
+          }} kW
+
+
+          **PV DC Total Power :**  
+
+          {{
+          states('sensor.panneaux_solaires_solid_ems_solid_pv_dc_total_power')
+          }} kW
+
+
+          ---
+
+
+          ### Diagnostic IA strings PV
+
+
+          **État strings PV :**  
+
+          {{ states('sensor.panneaux_solaires_solid_ems_solid_pv_string_status')
+          }}
+
+
+          **Alerte strings PV :**  
+
+          {{ states('sensor.panneaux_solaires_solid_ems_solid_pv_string_alert')
+          }}
+
+
+          **Écart individuel max :**  
+
+          {{
+          states('sensor.panneaux_solaires_solid_ems_solid_pv_string_individual_deviation')
+          }} %
+
+
+          ---
+
+
+          ### Données brutes Solis
+
+
+          **Raw familyLoadPower :**  
+
+          {{ states('sensor.panneaux_solaires_solid_ems_solid_raw_family_load')
+          }} kW
+
+
+          **Raw totalLoadPower :**  
+
+          {{ states('sensor.panneaux_solaires_solid_ems_solid_raw_total_load')
+          }} kW
+
+
+          **Raw batteryPower :**  
+
+          {{
+          states('sensor.panneaux_solaires_solid_ems_solid_raw_battery_power')
+          }} kW
+
+
+          **Raw PAC :**  
+
+          {{ states('sensor.panneaux_solaires_solid_ems_solid_raw_pac') }} kW
+
+
+          **Raw PV DC :**  
+
+          {{ states('sensor.panneaux_solaires_solid_ems_solid_raw_pv_dc') }} kW

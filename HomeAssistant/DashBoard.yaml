@@ -248,7 +248,7 @@ views:
           show_states: true
           colorize_states: true
         graph_span: 24h
-        update_interval: 30s
+        update_interval: 2s
         yaxis:
           - min: 0
             max: 100
@@ -287,7 +287,7 @@ views:
           show_states: true
           colorize_states: true
         graph_span: 24h
-        update_interval: 30s
+        update_interval: 2s
         apex_config:
           chart:
             height: 300
@@ -378,7 +378,7 @@ views:
           show_states: true
           colorize_states: true
         graph_span: 24h
-        update_interval: 30s
+        update_interval: 2s
         apex_config:
           chart:
             height: 340

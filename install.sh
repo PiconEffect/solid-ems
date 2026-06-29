@@ -88,7 +88,7 @@ SOLIS_KEY_SECRET=$SOLIS_KEY_SECRET
 
 MQTT_HOST=mqtt
 MQTT_PORT=1883
-POLL_INTERVAL=30
+POLL_INTERVAL=2
 
 BATTERY_CAPACITY_KWH=30
 HISTORY_FILE=/data/solid_ems_history.json
@@ -104,7 +104,7 @@ then
 fi
 
 echo ".env created"
-echo "Polling interval set to 30 seconds"
+echo "Polling interval set to 2 seconds"
 echo "AI history enabled"
 echo ""
 

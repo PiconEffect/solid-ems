@@ -13,13 +13,11 @@ class SolisClient:
     def __init__(self):
         self.key_id = os.getenv("SOLIS_KEY_ID")
         self.key_secret = os.getenv("SOLIS_KEY_SECRET")
+
         self.inverter_id = os.getenv("SOLIS_INVERTER_ID")
+        self.inverter_sn = os.getenv("SOLIS_INVERTER_SN")
 
         self.base_url = "https://www.soliscloud.com:13333"
-
-        # Important:
-        # Keep this value as application/json because this is the format
-        # that was working with your Solis API signature.
         self.content_type = "application/json"
 
         self.last_autodetect_attempt = 0
@@ -49,9 +47,6 @@ class SolisClient:
     def _post(self, endpoint, payload):
         url = f"{self.base_url}{endpoint}"
 
-        # Important:
-        # Keep default json.dumps formatting because the Content-MD5 and signature
-        # must match exactly the body sent to Solis.
         body = json.dumps(payload)
         date = formatdate(usegmt=True)
 
@@ -100,16 +95,10 @@ class SolisClient:
         raw_grid = self._to_float(d.get("psum"))
         raw_battery = self._to_float(d.get("batteryPower"))
 
-        # pow1 / pow2 are provided by Solis in W.
         pv1_power_kw = raw_pow1 / 1000.0
         pv2_power_kw = raw_pow2 / 1000.0
         pv_total_dc_kw = pv1_power_kw + pv2_power_kw
 
-        # BUGFIX:
-        # Do not use "power" as live PV production.
-        # In Solis data, "power" can correspond to installed/rated power,
-        # while "pac" is real-time inverter power and pow1/pow2 are DC powers.
-        # This avoids the fake 6 kW PV value at night.
         pv_power = 0.0
 
         if raw_pac > 0.05:
@@ -117,9 +106,6 @@ class SolisClient:
         elif pv_total_dc_kw > 0.05:
             pv_power = pv_total_dc_kw
 
-        # BUGFIX:
-        # Home load must be positive in Home Assistant.
-        # Raw values are preserved separately for diagnostics.
         load_power = raw_family_load
         if load_power == 0:
             load_power = raw_total_load
@@ -128,11 +114,6 @@ class SolisClient:
 
         load_power = abs(load_power)
 
-        # BUGFIX:
-        # SOLID EMS convention:
-        # grid_power > 0 = grid import / grid supplies energy
-        # grid_power < 0 = export / injection to grid
-        # Raw Solis psum remains available as raw_grid_psum.
         grid_power = -raw_grid
 
         result = {
@@ -147,12 +128,10 @@ class SolisClient:
                 d.get("temperature", d.get("inverterTemperature"))
             ),
 
-            # PV strings
             "pv1_power": round(max(pv1_power_kw, 0.0), 3),
             "pv2_power": round(max(pv2_power_kw, 0.0), 3),
             "pv_total_dc_power": round(max(pv_total_dc_kw, 0.0), 3),
 
-            # Raw diagnostics
             "raw_power": raw_power,
             "raw_pac": raw_pac,
             "raw_pow1_kw": round(pv1_power_kw, 3),
@@ -234,6 +213,15 @@ class SolisClient:
                 )
 
                 if test and test.get("success") and test.get("data"):
+                    self.inverter_sn = (
+                        inverter.get("sn")
+                        or inverter.get("deviceSn")
+                        or inverter.get("inverterSn")
+                    )
+
+                    if self.inverter_sn:
+                        print(f"VALID inverter SN found: {self.inverter_sn}", flush=True)
+
                     print(f"VALID inverter found: {inverter_id}", flush=True)
                     return str(inverter_id)
 
@@ -253,6 +241,16 @@ class SolisClient:
             if detected_id:
                 self.inverter_id = str(detected_id)
                 print(f"Inverter ID recovered from list: {self.inverter_id}", flush=True)
+
+        if not self.inverter_sn:
+            detected_sn = (
+                inverter.get("sn")
+                or inverter.get("deviceSn")
+                or inverter.get("inverterSn")
+            )
+            if detected_sn:
+                self.inverter_sn = str(detected_sn)
+                print(f"Inverter SN recovered from list: {self.inverter_sn}", flush=True)
 
         result = self._map_data(inverter)
 
@@ -289,6 +287,12 @@ class SolisClient:
             if not d:
                 print("Empty inverter detail data, using list fallback...", flush=True)
                 return self._get_data_from_inverter_list()
+
+            if not self.inverter_sn:
+                detected_sn = d.get("sn") or d.get("deviceSn") or d.get("inverterSn")
+                if detected_sn:
+                    self.inverter_sn = str(detected_sn)
+                    print(f"Inverter SN recovered from detail: {self.inverter_sn}", flush=True)
 
             result = self._map_data(d)
 

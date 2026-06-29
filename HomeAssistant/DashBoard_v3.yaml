@@ -339,8 +339,9 @@ views:
                             const active = states['input_boolean.solid_duree_inhibition_decharge']?.state === 'on';
                             const duration = states['input_select.solid_duree_inhibition_decharge']?.state || '6';
 
-                            if (active) return 'Active ' + duration + 'h';
-                            return 'Tap 6h / Hold 12h';
+                            if (!active) return 'Désactivé';
+                            if (duration === '12') return 'Active 12h';
+                            return 'Active 6h';
                           ]]]
                         tap_action:
                           action: call-service
@@ -356,10 +357,28 @@ views:
                             - background: |
                                 [[[
                                   const active = states['input_boolean.solid_duree_inhibition_decharge']?.state === 'on';
-                                  if (active) return 'linear-gradient(135deg, #6A1B9A, #AB47BC)';
+                                  const duration = states['input_select.solid_duree_inhibition_decharge']?.state || '6';
+
+                                  if (active && duration === '12') {
+                                    return 'linear-gradient(135deg, #0D47A1, #42A5F5)';
+                                  }
+
+                                  if (active) {
+                                    return 'linear-gradient(135deg, #6A1B9A, #AB47BC)';
+                                  }
+
                                   return 'linear-gradient(135deg, #263238, #455A64)';
                                 ]]]
                             - color: "#ffffff"
+                            - border: |
+                                [[[
+                                  const active = states['input_boolean.solid_duree_inhibition_decharge']?.state === 'on';
+                                  const duration = states['input_select.solid_duree_inhibition_decharge']?.state || '6';
+
+                                  if (active && duration === '12') return '1px solid #90CAF9';
+                                  if (active) return '1px solid #CE93D8';
+                                  return '1px solid #607D8B';
+                                ]]]
                           icon:
                             - width: 22px
                             - color: "#ffffff"
@@ -411,6 +430,16 @@ views:
                                   return 'linear-gradient(135deg, #263238, #455A64)';
                                 ]]]
                             - color: "#ffffff"
+                            - border: |
+                                [[[
+                                  const armed = states['input_boolean.solid_veille_hc']?.state === 'on';
+                                  const h = new Date().getHours();
+                                  const inWindow = h >= 22 || h < 6;
+
+                                  if (armed && inWindow) return '1px solid #FFCDD2';
+                                  if (armed) return '1px solid #FFE0B2';
+                                  return '1px solid #607D8B';
+                                ]]]
                           icon:
                             - width: 22px
                             - color: "#ffffff"

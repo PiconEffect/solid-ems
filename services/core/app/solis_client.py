@@ -16,7 +16,11 @@ class SolisClient:
         self.inverter_id = os.getenv("SOLIS_INVERTER_ID")
 
         self.base_url = "https://www.soliscloud.com:13333"
-        self.content_type = "application/json;charset=UTF-8"
+
+        # Important:
+        # Keep this value as application/json because this is the format
+        # that was working with your Solis API signature.
+        self.content_type = "application/json"
 
         self.last_autodetect_attempt = 0
         self.autodetect_retry_interval = 300
@@ -30,17 +34,7 @@ class SolisClient:
             hashlib.md5(body.encode("utf-8")).digest()
         ).decode()
 
-        sign_str = (
-            "POST"
-            + "\n"
-            + content_md5
-            + "\n"
-            + self.content_type
-            + "\n"
-            + date
-            + "\n"
-            + endpoint
-        )
+        sign_str = f"POST\n{content_md5}\n{self.content_type}\n{date}\n{endpoint}"
 
         signature = base64.b64encode(
             hmac.new(
@@ -55,14 +49,17 @@ class SolisClient:
     def _post(self, endpoint, payload):
         url = f"{self.base_url}{endpoint}"
 
-        body = json.dumps(payload, separators=(",", ":"))
+        # Important:
+        # Keep default json.dumps formatting because the Content-MD5 and signature
+        # must match exactly the body sent to Solis.
+        body = json.dumps(payload)
         date = formatdate(usegmt=True)
 
         content_md5, signature = self._sign(body, date, endpoint)
 
         headers = {
-            "Content-MD5": content_md5,
             "Content-Type": self.content_type,
+            "Content-MD5": content_md5,
             "Date": date,
             "Authorization": f"API {self.key_id}:{signature}",
         }
@@ -110,8 +107,8 @@ class SolisClient:
 
         # BUGFIX:
         # Do not use "power" as live PV production.
-        # According to Solis documentation, "power" can represent installed/rated power,
-        # while "pac" is the real-time output power and pow1/pow2 are DC input powers.
+        # In Solis data, "power" can correspond to installed/rated power,
+        # while "pac" is real-time inverter power and pow1/pow2 are DC powers.
         # This avoids the fake 6 kW PV value at night.
         pv_power = 0.0
 
@@ -121,7 +118,7 @@ class SolisClient:
             pv_power = pv_total_dc_kw
 
         # BUGFIX:
-        # Home consumption shall always be positive in Home Assistant.
+        # Home load must be positive in Home Assistant.
         # Raw values are preserved separately for diagnostics.
         load_power = raw_family_load
         if load_power == 0:
@@ -132,10 +129,10 @@ class SolisClient:
         load_power = abs(load_power)
 
         # BUGFIX:
-        # SOLID EMS display convention:
-        # grid_power > 0 means grid import / grid supplies energy.
-        # grid_power < 0 means export / injection to grid.
-        # The raw Solis value remains available as raw_grid_psum.
+        # SOLID EMS convention:
+        # grid_power > 0 = grid import / grid supplies energy
+        # grid_power < 0 = export / injection to grid
+        # Raw Solis psum remains available as raw_grid_psum.
         grid_power = -raw_grid
 
         result = {

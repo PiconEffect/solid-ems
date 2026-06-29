@@ -131,6 +131,7 @@ persistence_location /mosquitto/data/
 
 log_dest stdout
 MQTTEOF
+
     echo "mosquitto.conf created"
 else
     echo "mosquitto.conf already exists, keeping existing file"

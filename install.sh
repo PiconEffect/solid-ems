@@ -5,6 +5,9 @@ echo "   SOLID EMS INSTALL V10"
 echo "==================================="
 echo ""
 
+# ----------------------------
+# Check Docker
+# ----------------------------
 if ! command -v docker > /dev/null
 then
     echo "Docker not found -> installing..."
@@ -17,6 +20,9 @@ fi
 echo "Docker OK"
 echo ""
 
+# ----------------------------
+# Hidden password input helper
+# ----------------------------
 read_secret() {
     local prompt="$1"
     local secret=""
@@ -50,6 +56,9 @@ read_secret() {
     printf "%s" "$secret"
 }
 
+# ----------------------------
+# Preserve existing optional values
+# ----------------------------
 OLD_SOLIS_INVERTER_ID=""
 OLD_SOLIS_INVERTER_SN=""
 
@@ -59,17 +68,33 @@ then
     OLD_SOLIS_INVERTER_SN=$(grep "^SOLIS_INVERTER_SN=" .env | cut -d "=" -f2-)
 fi
 
+# ----------------------------
+# Solis API inputs
+# ----------------------------
 read -r -p "Solis Key ID: " SOLIS_KEY_ID
 SOLIS_KEY_SECRET=$(read_secret "Solis Key Secret: ")
 
+echo ""
+
+# ----------------------------
+# Solis Cloud control inputs
+# ----------------------------
 read -r -p "Solis User Name: " SOLIS_USER_NAME
 SOLIS_PASSWORD=$(read_secret "Solis Password: ")
 
+echo ""
+
+# ----------------------------
+# Clean inputs
+# ----------------------------
 SOLIS_KEY_ID=$(printf "%s" "$SOLIS_KEY_ID" | tr -d '\r\n')
 SOLIS_KEY_SECRET=$(printf "%s" "$SOLIS_KEY_SECRET" | tr -d '\r\n')
 SOLIS_USER_NAME=$(printf "%s" "$SOLIS_USER_NAME" | tr -d '\r\n')
 SOLIS_PASSWORD=$(printf "%s" "$SOLIS_PASSWORD" | tr -d '\r\n')
 
+# ----------------------------
+# Validation
+# ----------------------------
 if [ -z "$SOLIS_KEY_ID" ] || [ -z "$SOLIS_KEY_SECRET" ]
 then
     echo "ERROR: Missing Solis API credentials"
@@ -82,6 +107,9 @@ then
     echo "Battery control login will not work until SOLIS_USER_NAME and SOLIS_PASSWORD are set."
 fi
 
+# ----------------------------
+# Create .env
+# ----------------------------
 cat > .env <<ENVEOF
 SOLIS_KEY_ID=$SOLIS_KEY_ID
 SOLIS_KEY_SECRET=$SOLIS_KEY_SECRET
@@ -101,12 +129,15 @@ SOLIS_CONTROL_DRY_RUN=true
 SOLIS_CONTROL_LANGUAGE=2
 ENVEOF
 
+# Preserve optional inverter ID if it existed
 if [ -n "$OLD_SOLIS_INVERTER_ID" ]
 then
+    echo "" >> .env
     echo "SOLIS_INVERTER_ID=$OLD_SOLIS_INVERTER_ID" >> .env
     echo "Existing SOLIS_INVERTER_ID preserved"
 fi
 
+# Preserve optional inverter SN if it existed
 if [ -n "$OLD_SOLIS_INVERTER_SN" ]
 then
     echo "SOLIS_INVERTER_SN=$OLD_SOLIS_INVERTER_SN" >> .env
@@ -118,6 +149,9 @@ echo "Polling interval set to 10 seconds"
 echo "Solis battery control dry-run enabled"
 echo ""
 
+# ----------------------------
+# Check Mosquitto config
+# ----------------------------
 mkdir -p mosquitto
 
 if [ ! -f mosquitto/mosquitto.conf ]
@@ -137,11 +171,17 @@ else
     echo "mosquitto.conf already exists, keeping existing file"
 fi
 
+# ----------------------------
+# Start services
+# ----------------------------
 echo "Starting containers..."
 
 docker compose down
 docker compose up -d --build
 
+# ----------------------------
+# End
+# ----------------------------
 IP=$(hostname -I | awk '{print $1}')
 
 echo ""

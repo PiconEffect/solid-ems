@@ -14,7 +14,10 @@ class SolisClient:
         self.key_id = os.getenv("SOLIS_KEY_ID")
         self.key_secret = os.getenv("SOLIS_KEY_SECRET")
         self.inverter_id = os.getenv("SOLIS_INVERTER_ID")
+
         self.base_url = "https://www.soliscloud.com:13333"
+        self.content_type = "application/json;charset=UTF-8"
+
         self.last_autodetect_attempt = 0
         self.autodetect_retry_interval = 300
         self.timeout = 20
@@ -27,12 +30,22 @@ class SolisClient:
             hashlib.md5(body.encode("utf-8")).digest()
         ).decode()
 
-        sign_str = f"POST\n{content_md5}\napplication/json\n{date}\n{endpoint}"
+        sign_str = (
+            "POST"
+            + "\n"
+            + content_md5
+            + "\n"
+            + self.content_type
+            + "\n"
+            + date
+            + "\n"
+            + endpoint
+        )
 
         signature = base64.b64encode(
             hmac.new(
-                self.key_secret.encode(),
-                sign_str.encode(),
+                self.key_secret.encode("utf-8"),
+                sign_str.encode("utf-8"),
                 hashlib.sha1,
             ).digest()
         ).decode()
@@ -41,13 +54,15 @@ class SolisClient:
 
     def _post(self, endpoint, payload):
         url = f"{self.base_url}{endpoint}"
-        body = json.dumps(payload)
+
+        body = json.dumps(payload, separators=(",", ":"))
         date = formatdate(usegmt=True)
+
         content_md5, signature = self._sign(body, date, endpoint)
 
         headers = {
-            "Content-Type": "application/json",
             "Content-MD5": content_md5,
+            "Content-Type": self.content_type,
             "Date": date,
             "Authorization": f"API {self.key_id}:{signature}",
         }
@@ -93,30 +108,34 @@ class SolisClient:
         pv2_power_kw = raw_pow2 / 1000.0
         pv_total_dc_kw = pv1_power_kw + pv2_power_kw
 
-        # BUGFIX V10+:
-        # Do not use raw_power as a live PV fallback.
-        # On some Solis payloads, raw_power can be the inverter rated power,
-        # for example 6 kW, which creates a fake PV production at night.
+        # BUGFIX:
+        # Do not use "power" as live PV production.
+        # According to Solis documentation, "power" can represent installed/rated power,
+        # while "pac" is the real-time output power and pow1/pow2 are DC input powers.
+        # This avoids the fake 6 kW PV value at night.
         pv_power = 0.0
+
         if raw_pac > 0.05:
             pv_power = raw_pac
         elif pv_total_dc_kw > 0.05:
             pv_power = pv_total_dc_kw
 
-        # BUGFIX V10+:
-        # Home consumption must be positive in Home Assistant and in the flow card.
-        # Raw values remain untouched in raw_family_load / raw_total_load.
+        # BUGFIX:
+        # Home consumption shall always be positive in Home Assistant.
+        # Raw values are preserved separately for diagnostics.
         load_power = raw_family_load
         if load_power == 0:
             load_power = raw_total_load
         if load_power == 0:
             load_power = self._to_float(d.get("consumptionPower"))
+
         load_power = abs(load_power)
 
-        # BUGFIX V10+:
-        # SOLID EMS convention: grid_power > 0 means grid import,
-        # grid_power < 0 means grid export/injection.
-        # Raw Solis value remains available as raw_grid_psum for diagnostics.
+        # BUGFIX:
+        # SOLID EMS display convention:
+        # grid_power > 0 means grid import / grid supplies energy.
+        # grid_power < 0 means export / injection to grid.
+        # The raw Solis value remains available as raw_grid_psum.
         grid_power = -raw_grid
 
         result = {
@@ -127,10 +146,16 @@ class SolisClient:
             "battery_power": raw_battery,
             "daily_energy": self._to_float(d.get("etoday", d.get("eToday"))),
             "total_energy": self._to_float(d.get("etotal", d.get("eTotal"))),
-            "inverter_temp": self._to_float(d.get("temperature")),
+            "inverter_temp": self._to_float(
+                d.get("temperature", d.get("inverterTemperature"))
+            ),
+
+            # PV strings
             "pv1_power": round(max(pv1_power_kw, 0.0), 3),
             "pv2_power": round(max(pv2_power_kw, 0.0), 3),
             "pv_total_dc_power": round(max(pv_total_dc_kw, 0.0), 3),
+
+            # Raw diagnostics
             "raw_power": raw_power,
             "raw_pac": raw_pac,
             "raw_pow1_kw": round(pv1_power_kw, 3),
@@ -162,10 +187,13 @@ class SolisClient:
 
         try:
             records = data["data"]["page"]["records"]
+
             if not records:
                 print("No inverter found in inverter list", flush=True)
                 return []
+
             return records
+
         except Exception as error:
             print("Inverter list parsing error:", error, flush=True)
             return []
@@ -177,9 +205,11 @@ class SolisClient:
             return None
 
         self.last_autodetect_attempt = now
+
         print("Auto-detect inverter...", flush=True)
 
         records = self._get_inverter_list()
+
         if not records:
             print("Auto-detect failed: no inverter list", flush=True)
             return None
@@ -215,6 +245,7 @@ class SolisClient:
 
     def _get_data_from_inverter_list(self):
         records = self._get_inverter_list()
+
         if not records:
             return {}
 
@@ -227,7 +258,9 @@ class SolisClient:
                 print(f"Inverter ID recovered from list: {self.inverter_id}", flush=True)
 
         result = self._map_data(inverter)
+
         print("DATA from inverter list fallback:", result, flush=True)
+
         return result
 
     def get_data(self):
@@ -255,12 +288,15 @@ class SolisClient:
                 return self._get_data_from_inverter_list()
 
             d = data.get("data")
+
             if not d:
                 print("Empty inverter detail data, using list fallback...", flush=True)
                 return self._get_data_from_inverter_list()
 
             result = self._map_data(d)
+
             print("DATA:", result, flush=True)
+
             return result
 
         except Exception as error:

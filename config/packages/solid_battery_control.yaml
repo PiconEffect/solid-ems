@@ -1,0 +1,320 @@
+input_boolean:
+  solid_battery_discharge_inhibit_manual:
+    name: SOLID Inhibition décharge manuelle
+    icon: mdi:battery-lock
+
+  solid_battery_discharge_inhibit_hc_red:
+    name: SOLID Veille HC
+    icon: mdi:battery-clock
+
+
+input_select:
+  solid_battery_discharge_inhibit_duration:
+    name: SOLID Durée inhibition décharge
+    options:
+      - "6"
+      - "12"
+    initial: "6"
+    icon: mdi:timer-outline
+
+
+script:
+  solid_battery_discharge_inhibit_manual_toggle:
+    alias: SOLID Toggle inhibition décharge manuelle
+    mode: single
+    sequence:
+      - choose:
+          - conditions:
+              - condition: state
+                entity_id: input_boolean.solid_battery_discharge_inhibit_manual
+                state: "on"
+            sequence:
+              - service: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.solid_battery_discharge_inhibit_manual
+
+              - service: mqtt.publish
+                data:
+                  topic: solid/command/battery_discharge_inhibit
+                  retain: false
+                  payload: >
+                    {
+                      "source": "homeassistant",
+                      "mode": "manual",
+                      "enabled": false,
+                      "action": "resume_discharge"
+                    }
+
+        default:
+          - service: input_select.select_option
+            target:
+              entity_id: input_select.solid_battery_discharge_inhibit_duration
+            data:
+              option: "6"
+
+          - service: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.solid_battery_discharge_inhibit_manual
+
+          - service: mqtt.publish
+            data:
+              topic: solid/command/battery_discharge_inhibit
+              retain: false
+              payload: >
+                {
+                  "source": "homeassistant",
+                  "mode": "manual",
+                  "enabled": true,
+                  "duration_h": 6,
+                  "action": "inhibit_discharge"
+                }
+
+
+  solid_battery_discharge_inhibit_manual_12h:
+    alias: SOLID Inhibition décharge manuelle 12h
+    mode: single
+    sequence:
+      - service: input_select.select_option
+        target:
+          entity_id: input_select.solid_battery_discharge_inhibit_duration
+        data:
+          option: "12"
+
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.solid_battery_discharge_inhibit_manual
+
+      - service: mqtt.publish
+        data:
+          topic: solid/command/battery_discharge_inhibit
+          retain: false
+          payload: >
+            {
+              "source": "homeassistant",
+              "mode": "manual",
+              "enabled": true,
+              "duration_h": 12,
+              "action": "inhibit_discharge"
+            }
+
+
+  solid_battery_discharge_inhibit_hc_red_toggle:
+    alias: SOLID Toggle veille HC
+    mode: single
+    sequence:
+      - choose:
+          - conditions:
+              - condition: state
+                entity_id: input_boolean.solid_battery_discharge_inhibit_hc_red
+                state: "on"
+            sequence:
+              - service: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.solid_battery_discharge_inhibit_hc_red
+
+              - service: mqtt.publish
+                data:
+                  topic: solid/command/battery_discharge_inhibit
+                  retain: false
+                  payload: >
+                    {
+                      "source": "homeassistant",
+                      "mode": "offpeak",
+                      "enabled": false,
+                      "action": "resume_discharge"
+                    }
+
+        default:
+          - service: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.solid_battery_discharge_inhibit_hc_red
+
+          - service: mqtt.publish
+            data:
+              topic: solid/command/battery_discharge_inhibit
+              retain: false
+              payload: >
+                {
+                  "source": "homeassistant",
+                  "mode": "offpeak",
+                  "enabled": true,
+                  "armed": true,
+                  "window_start": "22:00",
+                  "window_end": "06:00",
+                  "action": "arm_inhibit_discharge"
+                }
+
+
+automation:
+  - id: solid_battery_discharge_inhibit_manual_timeout_6h
+    alias: SOLID Fin inhibition décharge manuelle 6h
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: input_boolean.solid_battery_discharge_inhibit_manual
+        to: "on"
+        for:
+          hours: 6
+    condition:
+      - condition: state
+        entity_id: input_select.solid_battery_discharge_inhibit_duration
+        state: "6"
+    action:
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.solid_battery_discharge_inhibit_manual
+
+      - service: mqtt.publish
+        data:
+          topic: solid/command/battery_discharge_inhibit
+          retain: false
+          payload: >
+            {
+              "source": "homeassistant",
+              "mode": "manual",
+              "enabled": false,
+              "action": "resume_discharge",
+              "reason": "timeout_6h"
+            }
+
+
+  - id: solid_battery_discharge_inhibit_manual_timeout_12h
+    alias: SOLID Fin inhibition décharge manuelle 12h
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: input_boolean.solid_battery_discharge_inhibit_manual
+        to: "on"
+        for:
+          hours: 12
+    condition:
+      - condition: state
+        entity_id: input_select.solid_battery_discharge_inhibit_duration
+        state: "12"
+    action:
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.solid_battery_discharge_inhibit_manual
+
+      - service: mqtt.publish
+        data:
+          topic: solid/command/battery_discharge_inhibit
+          retain: false
+          payload: >
+            {
+              "source": "homeassistant",
+              "mode": "manual",
+              "enabled": false,
+              "action": "resume_discharge",
+              "reason": "timeout_12h"
+            }
+
+
+  - id: solid_battery_discharge_inhibit_hc_start
+    alias: SOLID Veille HC - activation 22h
+    mode: single
+    trigger:
+      - platform: time
+        at: "22:00:00"
+    condition:
+      - condition: state
+        entity_id: input_boolean.solid_battery_discharge_inhibit_hc_red
+        state: "on"
+    action:
+      - service: mqtt.publish
+        data:
+          topic: solid/command/battery_discharge_inhibit
+          retain: false
+          payload: >
+            {
+              "source": "homeassistant",
+              "mode": "offpeak",
+              "enabled": true,
+              "active_now": true,
+              "duration_h": 8,
+              "action": "inhibit_discharge",
+              "reason": "offpeak_window_start"
+            }
+
+
+  - id: solid_battery_discharge_inhibit_hc_stop
+    alias: SOLID Veille HC - arrêt 06h
+    mode: single
+    trigger:
+      - platform: time
+        at: "06:00:00"
+    condition:
+      - condition: state
+        entity_id: input_boolean.solid_battery_discharge_inhibit_hc_red
+        state: "on"
+    action:
+      - service: mqtt.publish
+        data:
+          topic: solid/command/battery_discharge_inhibit
+          retain: false
+          payload: >
+            {
+              "source": "homeassistant",
+              "mode": "offpeak",
+              "enabled": false,
+              "active_now": false,
+              "action": "resume_discharge",
+              "reason": "offpeak_window_end"
+            }
+
+
+  - id: solid_battery_discharge_inhibit_hc_immediate
+    alias: SOLID Veille HC - activation immédiate si plage active
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: input_boolean.solid_battery_discharge_inhibit_hc_red
+        to: "on"
+    condition:
+      - condition: template
+        value_template: >
+          {% set h = now().hour %}
+          {{ h >= 22 or h < 6 }}
+    action:
+      - service: mqtt.publish
+        data:
+          topic: solid/command/battery_discharge_inhibit
+          retain: false
+          payload: >
+            {
+              "source": "homeassistant",
+              "mode": "offpeak",
+              "enabled": true,
+              "active_now": true,
+              "duration_h": 8,
+              "action": "inhibit_discharge",
+              "reason": "manual_enable_during_offpeak_window"
+            }
+
+
+  - id: solid_battery_discharge_inhibit_hc_cancel_immediate
+    alias: SOLID Veille HC - annulation immédiate
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: input_boolean.solid_battery_discharge_inhibit_hc_red
+        to: "off"
+    condition:
+      - condition: template
+        value_template: >
+          {% set h = now().hour %}
+          {{ h >= 22 or h < 6 }}
+    action:
+      - service: mqtt.publish
+        data:
+          topic: solid/command/battery_discharge_inhibit
+          retain: false
+          payload: >
+            {
+              "source": "homeassistant",
+              "mode": "offpeak",
+              "enabled": false,
+              "active_now": false,
+              "action": "resume_discharge",
+              "reason": "manual_disable_during_offpeak_window"
+            }

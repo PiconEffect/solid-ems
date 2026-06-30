@@ -19,6 +19,7 @@ class BatteryControl:
         self.content_type = os.getenv("SOLIS_CONTROL_CONTENT_TYPE", "application/json")
         self.language = os.getenv("SOLIS_CONTROL_LANGUAGE", "2")
         self.dry_run = os.getenv("SOLIS_CONTROL_DRY_RUN", "true").lower() in ["1", "true", "yes", "on"]
+        self.allow_real_write = os.getenv("SOLIS_CONTROL_ALLOW_REAL_WRITE", "false").lower() in ["1", "true", "yes", "on"]
         self.auto_validate = os.getenv("SOLIS_CONTROL_AUTO_VALIDATE", "true").lower() in ["1", "true", "yes", "on"]
         self.read_spacing_s = float(os.getenv("SOLIS_CONTROL_READ_SPACING_S", "0.70"))
         self.last_read_time = 0.0
@@ -374,6 +375,191 @@ class BatteryControl:
         print("BATTERY CONTROL dry-run apply inhibit plan completed - no Solis command sent", flush=True)
         return True
 
+
+    def _execute_control_payload(self, payload, description):
+        print(f"BATTERY CONTROL EXECUTE REQUEST - {description}: {payload}", flush=True)
+
+        if self.dry_run:
+            print("BATTERY CONTROL DRY-RUN active: no Solis command sent", flush=True)
+            return {
+                "success": True,
+                "dry_run": True,
+                "description": description,
+                "payload": payload,
+            }
+
+        if not self.allow_real_write:
+            print(
+                "BATTERY CONTROL REAL WRITE BLOCKED: SOLIS_CONTROL_ALLOW_REAL_WRITE is not true",
+                flush=True,
+            )
+            return {
+                "success": False,
+                "blocked": True,
+                "description": description,
+                "payload": payload,
+            }
+
+        if not self.inverter_sn:
+            print("BATTERY CONTROL real write blocked: missing inverter SN", flush=True)
+            return {
+                "success": False,
+                "blocked": True,
+                "reason": "missing inverter SN",
+            }
+
+        token = self.login()
+
+        if not token:
+            print("BATTERY CONTROL real write blocked: no token", flush=True)
+            return {
+                "success": False,
+                "blocked": True,
+                "reason": "no token",
+            }
+
+        response = self._post("/v2/api/control", payload, token=token)
+        print(f"BATTERY CONTROL EXECUTE RESPONSE - {description}: {response}", flush=True)
+        return response
+
+    def _build_inhibit_plan_payloads(self):
+        self.validate_modes()
+        print("BATTERY CONTROL inhibit plan current mode values:", self.last_mode_values, flush=True)
+
+        if not self.validation_done or not self.last_6972_value:
+            print("BATTERY CONTROL inhibit plan requires CID 6972 backup, validating now", flush=True)
+            self.validate_solis_charge_discharge_settings(force=True)
+
+        if not self.last_6972_value:
+            print("BATTERY CONTROL inhibit plan blocked: no valid CID 6972 backup available", flush=True)
+            return None, None
+
+        inhibit_6972_value = self.build_inhibit_6972_value(self.last_6972_value)
+
+        if not inhibit_6972_value:
+            print("BATTERY CONTROL inhibit plan blocked: unable to build CID 6972 inhibit value", flush=True)
+            return None, None
+
+        apply_payloads = []
+        restore_payloads = []
+
+        cid_636 = self.last_mode_values.get("636")
+        cid_100 = self.last_mode_values.get("100")
+        cid_109 = self.last_mode_values.get("109")
+        cid_543 = self.last_mode_values.get("543")
+
+        if cid_636 is not None and str(cid_636) != "1":
+            apply_payloads.append({
+                "description": "Enable Storage Inverters Control Switching",
+                "cid": "636",
+                "inverterSn": self.inverter_sn,
+                "value": "1",
+                "yuanzhi": str(cid_636),
+                "language": self.language,
+            })
+            restore_payloads.insert(0, {
+                "description": "Restore Storage Inverters Control Switching",
+                "cid": "636",
+                "inverterSn": self.inverter_sn,
+                "value": str(cid_636),
+                "yuanzhi": "1",
+                "language": self.language,
+            })
+        elif cid_636 is not None:
+            print("BATTERY CONTROL inhibit plan: CID 636 already enabled, no mode write required", flush=True)
+
+        if cid_100 is not None and str(cid_100) != "1":
+            apply_payloads.append({
+                "description": "Enable Time Of Use Select",
+                "cid": "100",
+                "inverterSn": self.inverter_sn,
+                "value": "1",
+                "yuanzhi": str(cid_100),
+                "language": self.language,
+            })
+            restore_payloads.insert(0, {
+                "description": "Restore Time Of Use Select",
+                "cid": "100",
+                "inverterSn": self.inverter_sn,
+                "value": str(cid_100),
+                "yuanzhi": "1",
+                "language": self.language,
+            })
+        elif cid_100 is not None:
+            print("BATTERY CONTROL inhibit plan: CID 100 already enabled, no TOU write required", flush=True)
+
+        if cid_109 is not None:
+            print(f"BATTERY CONTROL inhibit plan: CID 109 kept unchanged at {cid_109}", flush=True)
+
+        if cid_543 is not None:
+            print(f"BATTERY CONTROL inhibit plan: CID 543 kept unchanged at {cid_543}", flush=True)
+
+        apply_payloads.append({
+            "description": "Apply CID 6972 inhibit discharge value",
+            "cid": str(self.cid_charge_discharge_one_cid),
+            "inverterSn": self.inverter_sn,
+            "value": inhibit_6972_value,
+            "yuanzhi": self.last_6972_value,
+            "language": self.language,
+        })
+
+        restore_payloads.insert(0, {
+            "description": "Restore CID 6972 original value",
+            "cid": str(self.cid_charge_discharge_one_cid),
+            "inverterSn": self.inverter_sn,
+            "value": self.last_6972_value,
+            "yuanzhi": inhibit_6972_value,
+            "language": self.language,
+        })
+
+        return apply_payloads, restore_payloads
+
+    def apply_inhibit_plan(self):
+        print("BATTERY CONTROL apply inhibit plan requested", flush=True)
+        apply_payloads, _ = self._build_inhibit_plan_payloads()
+
+        if not apply_payloads:
+            print("BATTERY CONTROL apply inhibit plan blocked: no valid apply payloads", flush=True)
+            return False
+
+        print("BATTERY CONTROL APPLY PLAN START", flush=True)
+
+        for index, payload in enumerate(apply_payloads, start=1):
+            description = payload.get("description", f"apply step {index}")
+            print(f"BATTERY CONTROL APPLY STEP {index}: {payload}", flush=True)
+            result = self._execute_control_payload(payload, description)
+
+            if isinstance(result, dict) and result.get("success") is False:
+                print(f"BATTERY CONTROL apply inhibit plan stopped at step {index}", flush=True)
+                return False
+
+        self.active_6972_value = apply_payloads[-1].get("value")
+        print("BATTERY CONTROL apply inhibit plan completed", flush=True)
+        return True
+
+    def restore_inhibit_plan(self):
+        print("BATTERY CONTROL restore inhibit plan requested", flush=True)
+        _, restore_payloads = self._build_inhibit_plan_payloads()
+
+        if not restore_payloads:
+            print("BATTERY CONTROL restore inhibit plan blocked: no valid restore payloads", flush=True)
+            return False
+
+        print("BATTERY CONTROL RESTORE PLAN START", flush=True)
+
+        for index, payload in enumerate(restore_payloads, start=1):
+            description = payload.get("description", f"restore step {index}")
+            print(f"BATTERY CONTROL RESTORE STEP {index}: {payload}", flush=True)
+            result = self._execute_control_payload(payload, description)
+
+            if isinstance(result, dict) and result.get("success") is False:
+                print(f"BATTERY CONTROL restore inhibit plan stopped at step {index}", flush=True)
+                return False
+
+        self.active_6972_value = None
+        print("BATTERY CONTROL restore inhibit plan completed", flush=True)
+        return True
+
     def validate_solis_charge_discharge_settings(self, force=False):
         now = time.time()
         if not force and now - self.last_validation_attempt < self.validation_retry_interval_s:
@@ -532,6 +718,14 @@ class BatteryControl:
             return
         if action == "dry_run_apply_inhibit_plan":
             self.dry_run_apply_inhibit_plan()
+            return
+
+        if action == "apply_inhibit_plan":
+            self.apply_inhibit_plan()
+            return
+
+        if action == "restore_inhibit_plan":
+            self.restore_inhibit_plan()
             return
         if action == "arm_inhibit_discharge":
             print("BATTERY CONTROL armed for off-peak window", flush=True)

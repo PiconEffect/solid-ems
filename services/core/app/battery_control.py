@@ -74,9 +74,12 @@ class BatteryControl:
     def _safe(self, value):
         if value is None:
             return ""
+
         value = str(value)
+
         if len(value) <= 4:
             return "****"
+
         return value[:2] + "****" + value[-2:]
 
     def _mask_payload(self, payload):
@@ -737,20 +740,28 @@ class BatteryControl:
             self.validate_solis_charge_discharge_settings(force=True)
             return
 
-        if action == "inhibit_discharge" or enabled is True:
-            self.inhibit_discharge(mode=mode, duration_h=duration_h)
-            return
-
-        if action == "resume_discharge" or enabled is False:
-            self.resume_discharge(mode=mode)
-            return
-
         if action == "arm_inhibit_discharge":
             print("BATTERY CONTROL armed for off-peak window", flush=True)
 
             if self.auto_validate and not self.validation_done:
                 self.validate_solis_charge_discharge_settings(force=False)
 
+            return
+
+        if action == "inhibit_discharge":
+            self.inhibit_discharge(mode=mode, duration_h=duration_h)
+            return
+
+        if action == "resume_discharge":
+            self.resume_discharge(mode=mode)
+            return
+
+        if enabled is True:
+            self.inhibit_discharge(mode=mode, duration_h=duration_h)
+            return
+
+        if enabled is False:
+            self.resume_discharge(mode=mode)
             return
 
         print("BATTERY CONTROL unsupported command:", command, flush=True)

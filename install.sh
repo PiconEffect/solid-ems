@@ -128,7 +128,8 @@ HISTORY_DAYS=14
 SOLIS_CONTROL_DRY_RUN=true
 SOLIS_CONTROL_LANGUAGE=2
 SOLIS_CONTROL_AUTO_VALIDATE=false
-SOLIS_CONTROL_READ_SPACING_S=1.5
+SOLIS_CONTROL_READ_SPACING_S=2.5
+SOLIS_CONTROL_ALLOW_REAL_WRITE=false
 ENVEOF
 
 # Preserve optional inverter ID if it existed
@@ -149,8 +150,9 @@ fi
 echo ".env created"
 echo "Polling interval set to 10 seconds"
 echo "Solis battery control dry-run enabled"
+echo "Solis battery control real write disabled"
 echo "Solis battery control auto-validation disabled at startup"
-echo "Solis control read spacing set to 1.5 seconds"
+echo "Solis control read spacing set to 2.5 seconds"
 echo ""
 
 # ----------------------------
@@ -194,12 +196,14 @@ echo "INSTALL DONE"
 echo "==================================="
 echo ""
 echo "Check containers:"
-echo "  docker ps"
+echo "  docker compose ps"
 echo ""
 echo "Check logs:"
-echo "  docker logs solid-core -f"
+echo "  docker compose logs solid-core -f"
+echo ""
+echo "Check Solis control env:"
+echo "  docker compose exec solid-core sh -lc 'env | grep SOLIS_CONTROL'"
 echo ""
 echo "Home Assistant:"
 echo "  http://$IP:8123"
 echo ""
-``

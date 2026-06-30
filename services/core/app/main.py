@@ -129,6 +129,69 @@ def get_tempo_data_safe():
     return default
 
 
+def _safe_float(value, default=0.0):
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def compute_pv_string_diagnostic(state):
+    """
+    Diagnostic PV robuste calculé directement depuis PV1/PV2.
+
+    Objectif :
+    - conserver toutes les fonctions existantes
+    - ne remplacer le diagnostic IA que s'il est absent, UNKNOWN ou indisponible
+    - publier un diagnostic PV exploitable si pv1_power/pv2_power existent
+    """
+
+    pv1 = _safe_float(state.get("pv1_power", state.get("raw_pow1_kw", 0.0)))
+    pv2 = _safe_float(state.get("pv2_power", state.get("raw_pow2_kw", 0.0)))
+    pv_dc = _safe_float(state.get("pv_total_dc_power", state.get("raw_pv_dc_kw", 0.0)))
+    pv_ac = _safe_float(state.get("pv_power", state.get("raw_pac", 0.0)))
+
+    total_strings = pv1 + pv2
+    total_ref = max(total_strings, pv_dc, pv_ac)
+
+    if total_ref < 0.5:
+        return {
+            "pv_string_status": "LOW_LIGHT",
+            "pv_string_alert": "Production trop faible pour diagnostiquer les strings PV",
+            "pv_string_imbalance_pct": 0.0,
+        }
+
+    if total_strings <= 0:
+        return {
+            "pv_string_status": "UNKNOWN",
+            "pv_string_alert": "Diagnostic strings PV indisponible : données PV1/PV2 absentes",
+            "pv_string_imbalance_pct": 0.0,
+        }
+
+    imbalance_pct = abs(pv1 - pv2) / total_strings * 100.0
+
+    if imbalance_pct < 25:
+        status = "OK"
+        alert = f"Strings PV équilibrés : écart {imbalance_pct:.1f} %"
+    elif imbalance_pct < 40:
+        status = "WATCH"
+        alert = f"Écart strings PV à surveiller : {imbalance_pct:.1f} %"
+    elif imbalance_pct < 60:
+        status = "WARNING"
+        alert = f"Écart strings PV élevé : {imbalance_pct:.1f} %"
+    else:
+        status = "CRITICAL"
+        alert = f"Déséquilibre strings PV critique : {imbalance_pct:.1f} %"
+
+    return {
+        "pv_string_status": status,
+        "pv_string_alert": alert,
+        "pv_string_imbalance_pct": round(imbalance_pct, 1),
+    }
+
+
 def get_ai_data_safe(solis_data, tempo_data):
     default = {
         "advice": "Autoconsommation stable. Surveiller PV, batterie et réseau.",
@@ -228,6 +291,26 @@ def normalize_state(solis_data, tempo_data, ai_data):
 
     if isinstance(ai_data, dict):
         state.update(ai_data)
+
+    # -------------------------------------------------------------------
+    # Diagnostic PV fallback robuste.
+    #
+    # On conserve le diagnostic IA s'il est valide.
+    # On remplace uniquement les valeurs absentes, UNKNOWN, indisponibles
+    # ou à 0 alors que PV1/PV2 sont disponibles.
+    # -------------------------------------------------------------------
+    pv_diag = compute_pv_string_diagnostic(state)
+
+    current_status = str(state.get("pv_string_status") or "").upper()
+    current_alert = str(state.get("pv_string_alert") or "")
+    current_imbalance = _safe_float(state.get("pv_string_imbalance_pct"), 0.0)
+
+    if (
+        current_status in ["", "UNKNOWN", "NONE"]
+        or "indisponible" in current_alert.lower()
+        or current_imbalance <= 0.0
+    ):
+        state.update(pv_diag)
 
     numeric_defaults = {
         "pv_power": 0.0,

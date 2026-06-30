@@ -611,23 +611,26 @@ class BatteryControl:
         if cid_543 is not None:
             print(f"BATTERY CONTROL inhibit plan: CID 543 kept unchanged at {cid_543}", flush=True)
 
-        apply_payloads.append({
-            "description": "Apply CID 6972 inhibit discharge value",
-            "cid": str(self.cid_charge_discharge_one_cid),
-            "inverterSn": self.inverter_sn,
-            "value": inhibit_6972_value,
-            "yuanzhi": self.last_6972_value,
-            "language": self.language,
-        })
+        if inhibit_6972_value == self.last_6972_value:
+            print("BATTERY CONTROL inhibit plan: CID 6972 unchanged, skipping apply and restore write", flush=True)
+        else:
+            apply_payloads.append({
+                "description": "Apply CID 6972 inhibit discharge value",
+                "cid": str(self.cid_charge_discharge_one_cid),
+                "inverterSn": self.inverter_sn,
+                "value": inhibit_6972_value,
+                "yuanzhi": self.last_6972_value,
+                "language": self.language,
+            })
 
-        restore_payloads.insert(0, {
-            "description": "Restore CID 6972 original value",
-            "cid": str(self.cid_charge_discharge_one_cid),
-            "inverterSn": self.inverter_sn,
-            "value": self.last_6972_value,
-            "yuanzhi": inhibit_6972_value,
-            "language": self.language,
-        })
+            restore_payloads.insert(0, {
+                "description": "Restore CID 6972 original value",
+                "cid": str(self.cid_charge_discharge_one_cid),
+                "inverterSn": self.inverter_sn,
+                "value": self.last_6972_value,
+                "yuanzhi": inhibit_6972_value,
+                "language": self.language,
+            })
 
         return apply_payloads, restore_payloads
 
@@ -650,7 +653,7 @@ class BatteryControl:
                 print("BATTERY CONTROL apply inhibit plan not completed. Run restore_inhibit_plan if a previous step was already applied.", flush=True)
                 return False
 
-        self.active_6972_value = apply_payloads[-1].get("value")
+        self.active_6972_value = apply_payloads[-1].get("value") if apply_payloads else None
         print("BATTERY CONTROL apply inhibit plan completed", flush=True)
         return True
 

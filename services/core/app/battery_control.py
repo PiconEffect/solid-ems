@@ -479,6 +479,94 @@ class BatteryControl:
 
         return True
 
+    def dry_run_mode_candidates(self):
+        print("BATTERY CONTROL dry-run mode candidates started", flush=True)
+
+        if not self.inverter_sn:
+            print("BATTERY CONTROL mode candidates skipped: missing inverter SN", flush=True)
+            return False
+
+        self.validate_modes()
+
+        cid_636 = self.last_mode_values.get("636")
+        cid_100 = self.last_mode_values.get("100")
+        cid_543 = self.last_mode_values.get("543")
+        cid_109 = self.last_mode_values.get("109")
+
+        print("BATTERY CONTROL current mode values:", self.last_mode_values, flush=True)
+
+        candidates = []
+
+        if cid_636 is not None:
+            candidates.append({
+                "description": "Keep Storage Inverters Control Switching unchanged",
+                "cid": "636",
+                "inverterSn": self.inverter_sn,
+                "value": str(cid_636),
+                "yuanzhi": str(cid_636),
+                "language": self.language,
+            })
+
+        if cid_100 is not None:
+            candidates.append({
+                "description": "Candidate enable Time Of Use Select",
+                "cid": "100",
+                "inverterSn": self.inverter_sn,
+                "value": "1",
+                "yuanzhi": str(cid_100),
+                "language": self.language,
+            })
+
+        if cid_109 is not None:
+            candidates.append({
+                "description": "Keep Allow Grid Charging unchanged",
+                "cid": "109",
+                "inverterSn": self.inverter_sn,
+                "value": str(cid_109),
+                "yuanzhi": str(cid_109),
+                "language": self.language,
+            })
+
+        if cid_543 is not None:
+            candidates.append({
+                "description": "Candidate work mode / time-of-use mode review",
+                "cid": "543",
+                "inverterSn": self.inverter_sn,
+                "value": str(cid_543),
+                "yuanzhi": str(cid_543),
+                "language": self.language,
+            })
+
+        if self.last_6972_value:
+            inhibit_value = self.build_inhibit_6972_value(self.last_6972_value)
+
+            if inhibit_value:
+                candidates.append({
+                    "description": "Candidate CID 6972 inhibit discharge value",
+                    "cid": str(self.cid_charge_discharge_one_cid),
+                    "inverterSn": self.inverter_sn,
+                    "value": inhibit_value,
+                    "yuanzhi": self.last_6972_value,
+                    "language": self.language,
+                })
+        else:
+            print(
+                "BATTERY CONTROL mode candidates note: no CID 6972 backup available yet",
+                flush=True,
+            )
+
+        print("BATTERY CONTROL dry-run mode candidates:", flush=True)
+
+        for candidate in candidates:
+            print(
+                f"BATTERY CONTROL MODE CANDIDATE - {candidate['description']}: {candidate}",
+                flush=True,
+            )
+
+        print("BATTERY CONTROL dry-run mode candidates completed - no Solis command sent", flush=True)
+
+        return True
+
     def validate_solis_charge_discharge_settings(self, force=False):
         now = time.time()
 
@@ -782,6 +870,10 @@ class BatteryControl:
 
         if action == "validate_modes":
             self.validate_modes()
+            return
+
+        if action == "dry_run_mode_candidates":
+            self.dry_run_mode_candidates()
             return
 
         if action == "arm_inhibit_discharge":

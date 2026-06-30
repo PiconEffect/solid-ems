@@ -1,15 +1,4 @@
 services:
-  solid-core:
-    build: ./services/core
-    container_name: solid-core
-    restart: unless-stopped
-    env_file:
-      - .env
-    depends_on:
-      - mqtt
-    volumes:
-      - solid-data:/data
-
   mqtt:
     image: eclipse-mosquitto:2
     container_name: mosquitto
@@ -17,7 +6,42 @@ services:
     ports:
       - "1883:1883"
     volumes:
-      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+
+  solid-core:
+    build:
+      context: ./services/core
+    container_name: solid-core
+    restart: unless-stopped
+    depends_on:
+      - mqtt
+    env_file:
+      - .env
+    environment:
+      MQTT_HOST: ${MQTT_HOST:-mqtt}
+      MQTT_PORT: ${MQTT_PORT:-1883}
+      POLL_INTERVAL: ${POLL_INTERVAL:-10}
+
+      SOLIS_KEY_ID: ${SOLIS_KEY_ID}
+      SOLIS_KEY_SECRET: ${SOLIS_KEY_SECRET}
+      SOLIS_USER_NAME: ${SOLIS_USER_NAME}
+      SOLIS_PASSWORD: ${SOLIS_PASSWORD}
+      SOLIS_INVERTER_ID: ${SOLIS_INVERTER_ID:-}
+      SOLIS_INVERTER_SN: ${SOLIS_INVERTER_SN:-}
+
+      BATTERY_CAPACITY_KWH: ${BATTERY_CAPACITY_KWH:-30}
+      HISTORY_FILE: ${HISTORY_FILE:-/data/solid_ems_history.json}
+      HISTORY_DAYS: ${HISTORY_DAYS:-14}
+
+      SOLIS_CONTROL_DRY_RUN: ${SOLIS_CONTROL_DRY_RUN:-true}
+      SOLIS_CONTROL_LANGUAGE: ${SOLIS_CONTROL_LANGUAGE:-2}
+      SOLIS_CONTROL_AUTO_VALIDATE: ${SOLIS_CONTROL_AUTO_VALIDATE:-false}
+      SOLIS_CONTROL_READ_SPACING_S: ${SOLIS_CONTROL_READ_SPACING_S:-1.5}
+    volumes:
+      - ./data:/data
 
 volumes:
-  solid-data:
+  mosquitto_data:
+  mosquitto_log:

@@ -28,28 +28,28 @@ read_secret() {
     local secret=""
     local char=""
 
-    echo -n "$prompt"
+    printf "%s" "$prompt" >&2
 
     while true
     do
         IFS= read -r -s -n1 char
 
-        if [[ -z "$char" ]]
+        if [ -z "$char" ]
         then
-            echo ""
+            printf "\n" >&2
             break
         fi
 
-        if [[ "$char" == $'\x7f' ]]
+        if [ "$char" = $'\177' ] || [ "$char" = $'\b' ]
         then
             if [ -n "$secret" ]
             then
                 secret="${secret%?}"
-                echo -ne "\b \b"
+                printf "\b \b" >&2
             fi
         else
             secret="${secret}${char}"
-            echo -n "*"
+            printf "*" >&2
         fi
     done
 

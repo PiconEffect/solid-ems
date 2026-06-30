@@ -35,9 +35,6 @@ class BatteryControl:
         self.token_time = 0
         self.token_validity_s = 3600
 
-        self.cid_time_of_use_select = 100
-        self.cid_allow_grid_charging = 109
-        self.cid_storage_control_switching = 636
         self.cid_new_earning_marker = 6798
         self.cid_charge_discharge_one_cid = 6972
 
@@ -254,7 +251,64 @@ class BatteryControl:
 
         return None
 
-    def read_cid(self, cid):
+    def _is_error_value(self, value):
+        if value is None:
+            return True
+
+        text = str(value).strip().lower()
+
+        if text == "":
+            return True
+
+        error_keywords = [
+            "communication error",
+            "please refresh",
+            "try again later",
+            "data error",
+            "forbidden",
+            "not found",
+            "too many requests",
+            "error",
+            "failed",
+        ]
+
+        return any(keyword in text for keyword in error_keywords)
+
+    def _looks_like_6972_value(self, value):
+        if self._is_error_value(value):
+            return False
+
+        parts = [p.strip() for p in str(value).split(",")]
+
+        if len(parts) != 60:
+            print(
+                f"BATTERY CONTROL CID 6972 invalid field count: {len(parts)} expected 60",
+                flush=True,
+            )
+            return False
+
+        for group_index in range(12):
+            base = group_index * 5
+            switch_value = parts[base]
+            time_slot = parts[base + 1]
+
+            if switch_value not in ["0", "1"]:
+                print(
+                    f"BATTERY CONTROL CID 6972 invalid switch in group {group_index + 1}: {switch_value}",
+                    flush=True,
+                )
+                return False
+
+            if "-" not in time_slot:
+                print(
+                    f"BATTERY CONTROL CID 6972 invalid time slot in group {group_index + 1}: {time_slot}",
+                    flush=True,
+                )
+                return False
+
+        return True
+
+    def read_cid_once(self, cid):
         if not self.inverter_sn:
             print(f"BATTERY CONTROL read CID {cid} skipped: missing inverter SN", flush=True)
             return None
@@ -268,13 +322,39 @@ class BatteryControl:
 
         value = self._extract_read_value(response)
 
-        if value is None:
-            print(f"BATTERY CONTROL read CID {cid} failed: {response}", flush=True)
+        if self._is_error_value(value):
+            print(f"BATTERY CONTROL read CID {cid} returned invalid/error value: {value}", flush=True)
             return None
 
         print(f"BATTERY CONTROL read CID {cid} = {value}", flush=True)
 
         return value
+
+    def read_cid(self, cid, attempts=3, delay_s=2):
+        last_value = None
+
+        for attempt in range(1, attempts + 1):
+            print(
+                f"BATTERY CONTROL read CID {cid} attempt {attempt}/{attempts}",
+                flush=True,
+            )
+
+            value = self.read_cid_once(cid)
+
+            if value is not None:
+                return value
+
+            last_value = value
+
+            if attempt < attempts:
+                time.sleep(delay_s)
+
+        print(
+            f"BATTERY CONTROL read CID {cid} failed after {attempts} attempts. Last value={last_value}",
+            flush=True,
+        )
+
+        return None
 
     def validate_solis_charge_discharge_settings(self, force=False):
         now = time.time()
@@ -291,7 +371,7 @@ class BatteryControl:
 
         print("BATTERY CONTROL validation started", flush=True)
 
-        marker = self.read_cid(self.cid_new_earning_marker)
+        marker = self.read_cid(self.cid_new_earning_marker, attempts=2, delay_s=1)
 
         if marker is not None:
             self.marker_6798_value = marker
@@ -315,11 +395,23 @@ class BatteryControl:
                 flush=True,
             )
 
-        value_6972 = self.read_cid(self.cid_charge_discharge_one_cid)
+        value_6972 = self.read_cid(
+            self.cid_charge_discharge_one_cid,
+            attempts=5,
+            delay_s=3,
+        )
 
         if not value_6972:
             print(
                 "BATTERY CONTROL validation failed: unable to read CID 6972",
+                flush=True,
+            )
+            self.validation_done = False
+            return False
+
+        if not self._looks_like_6972_value(value_6972):
+            print(
+                "BATTERY CONTROL validation failed: CID 6972 value is not valid",
                 flush=True,
             )
             self.validation_done = False
@@ -334,15 +426,15 @@ class BatteryControl:
             flush=True,
         )
 
-        if len(groups) != 12:
+        inhibit_value = self.build_inhibit_6972_value(value_6972)
+
+        if not inhibit_value:
             print(
-                "BATTERY CONTROL warning: expected 12 groups for CID 6972, check inverter format before enabling real writes",
+                "BATTERY CONTROL validation failed: cannot build inhibit value",
                 flush=True,
             )
             self.validation_done = False
             return False
-
-        inhibit_value = self.build_inhibit_6972_value(value_6972)
 
         print("BATTERY CONTROL validation OK: CID 6972 backup available", flush=True)
         print(f"BATTERY CONTROL current 6972 yuanzhi: {value_6972}", flush=True)
@@ -356,6 +448,13 @@ class BatteryControl:
         if not value:
             return
 
+        if not self._looks_like_6972_value(value):
+            print(
+                "BATTERY CONTROL 6972 backup rejected: invalid value",
+                flush=True,
+            )
+            return
+
         self.last_6972_value = str(value)
         self.last_6972_backup_time = time.time()
 
@@ -366,12 +465,6 @@ class BatteryControl:
             return []
 
         parts = [p.strip() for p in str(value).split(",")]
-
-        if len(parts) % 5 != 0:
-            print(
-                f"BATTERY CONTROL WARNING: 6972 value has {len(parts)} fields, expected multiple of 5",
-                flush=True,
-            )
 
         groups = []
 
@@ -391,9 +484,9 @@ class BatteryControl:
         return ",".join(flat)
 
     def build_inhibit_6972_value(self, current_value):
-        if not current_value:
+        if not self._looks_like_6972_value(current_value):
             print(
-                "BATTERY CONTROL no current 6972 value available, cannot build safe inhibit value",
+                "BATTERY CONTROL cannot build inhibit value: invalid current CID 6972 value",
                 flush=True,
             )
             return None
@@ -412,10 +505,10 @@ class BatteryControl:
         for index, group in enumerate(groups):
             new_group = list(group)
 
-            # CID 6972 order from manufacturer:
+            # Manufacturer format:
             # groups 1 to 6 = charge slots
             # groups 7 to 12 = discharge slots
-            # Each group = switch, time slot, current, SOC, voltage.
+            # each group = switch, time slot, current, SOC, voltage.
             if index >= 6:
                 new_group[0] = "0"
                 new_group[1] = "00:00-00:00"
@@ -469,7 +562,7 @@ class BatteryControl:
 
         if not self.last_6972_value:
             print(
-                "BATTERY CONTROL inhibit blocked: no CID 6972 backup available",
+                "BATTERY CONTROL inhibit blocked: no valid CID 6972 backup available",
                 flush=True,
             )
             return
@@ -517,7 +610,7 @@ class BatteryControl:
 
         if not self.last_6972_value:
             print(
-                "BATTERY CONTROL restore skipped: no previous CID 6972 backup available",
+                "BATTERY CONTROL restore skipped: no valid CID 6972 backup available",
                 flush=True,
             )
             return

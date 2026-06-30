@@ -13,7 +13,7 @@ DEVICE = {
 }
 
 
-SENSORS = [
+NUMERIC_SENSORS = [
     {
         "key": "pv_power",
         "name": "PV Power",
@@ -86,6 +86,8 @@ SENSORS = [
         "state_class": "measurement",
         "icon": "mdi:thermometer",
     },
+
+    # PV strings / DC
     {
         "key": "pv1_power",
         "name": "PV1 Power",
@@ -113,6 +115,8 @@ SENSORS = [
         "state_class": "measurement",
         "icon": "mdi:solar-power-variant",
     },
+
+    # Raw Solis values
     {
         "key": "raw_power",
         "name": "Raw Power",
@@ -194,13 +198,15 @@ SENSORS = [
         "state_class": "measurement",
         "icon": "mdi:battery-charging",
     },
+
+    # Tempo
     {
         "key": "tempo",
         "name": "Tempo Today",
         "object_id": "solid_tempo",
         "unit": None,
         "device_class": None,
-        "state_class": None,
+        "state_class": "measurement",
         "icon": "mdi:calendar-today",
     },
     {
@@ -209,9 +215,11 @@ SENSORS = [
         "object_id": "solid_tempo_tomorrow",
         "unit": None,
         "device_class": None,
-        "state_class": None,
+        "state_class": "measurement",
         "icon": "mdi:calendar-arrow-right",
     },
+
+    # AI / forecast / supervision
     {
         "key": "pv_forecast_kw",
         "name": "PV Forecast",
@@ -226,7 +234,7 @@ SENSORS = [
         "name": "Estimated Autonomy",
         "object_id": "solid_estimated_autonomy_h",
         "unit": "h",
-        "device_class": "duration",
+        "device_class": None,
         "state_class": "measurement",
         "icon": "mdi:timer-outline",
     },
@@ -235,7 +243,7 @@ SENSORS = [
         "name": "Estimated Battery Full",
         "object_id": "solid_estimated_battery_full_h",
         "unit": "h",
-        "device_class": "duration",
+        "device_class": None,
         "state_class": "measurement",
         "icon": "mdi:battery-clock",
     },
@@ -266,6 +274,8 @@ SENSORS = [
         "state_class": "measurement",
         "icon": "mdi:numeric",
     },
+
+    # PV diagnostic
     {
         "key": "pv_string_imbalance_pct",
         "name": "PV String Imbalance",
@@ -274,6 +284,28 @@ SENSORS = [
         "device_class": None,
         "state_class": "measurement",
         "icon": "mdi:solar-panel-large",
+    },
+
+    # Calculated helpers for dashboard compatibility
+    {
+        "key": "_calc_autoconsumption_pct",
+        "name": "Autoconsumption",
+        "object_id": "solid_autoconsumption_pct",
+        "unit": "%",
+        "device_class": None,
+        "state_class": "measurement",
+        "icon": "mdi:home-percent",
+        "template": "{% set pv = value_json.pv_power | float(0) %}{% set grid = value_json.grid_power | float(0) %}{% if pv > 0 %}{{ (((pv - [grid, 0] | max) / pv) * 100) | round(1) }}{% else %}0{% endif %}",
+    },
+    {
+        "key": "_calc_forecast_load_gap_kw",
+        "name": "Forecast Load Gap",
+        "object_id": "solid_forecast_load_gap_kw",
+        "unit": "kW",
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:delta",
+        "template": "{{ ((value_json.habit_load_next_6h_kw | float(0)) - (value_json.pv_forecast_kw | float(0))) | round(2) }}",
     },
 ]
 
@@ -293,13 +325,13 @@ TEXT_SENSORS = [
     },
     {
         "key": "advice",
-        "name": "Advice",
+        "name": "AI Advice",
         "object_id": "solid_advice",
         "icon": "mdi:lightbulb-on-outline",
     },
     {
         "key": "prediction",
-        "name": "Prediction",
+        "name": "AI Prediction",
         "object_id": "solid_prediction",
         "icon": "mdi:crystal-ball",
     },
@@ -343,32 +375,41 @@ TEXT_SENSORS = [
 
 
 def _publish_config(mqtt, topic, config):
+    payload = json.dumps(config, ensure_ascii=False)
+
     mqtt.publish(
         topic,
-        json.dumps(config, ensure_ascii=False),
+        payload=payload,
+        qos=0,
         retain=True,
     )
+
     print(f"MQTT Discovery published -> {topic}", flush=True)
 
 
-def _sensor_config(sensor, state_topic):
+def _numeric_sensor_config(sensor, state_topic):
+    template = sensor.get("template")
+
+    if not template:
+        template = "{{ value_json." + sensor["key"] + " }}"
+
     config = {
         "name": sensor["name"],
         "object_id": sensor["object_id"],
         "unique_id": sensor["object_id"],
         "state_topic": state_topic,
-        "value_template": "{{ value_json." + sensor["key"] + " }}",
+        "value_template": template,
         "device": DEVICE,
         "icon": sensor.get("icon"),
     }
 
-    if sensor.get("unit"):
+    if sensor.get("unit") is not None:
         config["unit_of_measurement"] = sensor["unit"]
 
-    if sensor.get("device_class"):
+    if sensor.get("device_class") is not None:
         config["device_class"] = sensor["device_class"]
 
-    if sensor.get("state_class"):
+    if sensor.get("state_class") is not None:
         config["state_class"] = sensor["state_class"]
 
     return config
@@ -386,25 +427,28 @@ def _text_sensor_config(sensor, state_topic):
     }
 
 
-def publish_discovery(mqtt, state_topic=STATE_TOPIC_DEFAULT, discovery_prefix=DISCOVERY_PREFIX_DEFAULT):
+def publish_discovery(mqtt, state_topic=STATE_TOPIC_DEFAULT, *args, **kwargs):
     """
-    Publie les topics MQTT Discovery Home Assistant.
+    Publie les configs MQTT Discovery Home Assistant.
 
-    Signature volontairement compatible avec :
+    Compatible avec :
       publish_discovery(mqtt)
       publish_discovery(mqtt, state_topic)
 
-    Cela corrige le cas où main.py appelle publish_discovery avec 2 arguments.
+    Correction racine :
+      main.py peut appeler publish_discovery avec 2 arguments.
     """
+
+    discovery_prefix = kwargs.get("discovery_prefix", DISCOVERY_PREFIX_DEFAULT)
 
     print(
         f"MQTT Discovery publish started state_topic={state_topic} prefix={discovery_prefix}",
         flush=True,
     )
 
-    for sensor in SENSORS:
+    for sensor in NUMERIC_SENSORS:
         topic = f"{discovery_prefix}/sensor/{sensor['object_id']}/config"
-        _publish_config(mqtt, topic, _sensor_config(sensor, state_topic))
+        _publish_config(mqtt, topic, _numeric_sensor_config(sensor, state_topic))
 
     for sensor in TEXT_SENSORS:
         topic = f"{discovery_prefix}/sensor/{sensor['object_id']}/config"

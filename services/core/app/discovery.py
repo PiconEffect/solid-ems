@@ -13,7 +13,22 @@ DEVICE = {
 }
 
 
+def value_template(key, default="0"):
+    return "{{ value_json." + key + " | default(" + default + ") }}"
+
+
+def numeric_template(key):
+    return "{{ value_json." + key + " | default(0) | float(0) }}"
+
+
+def text_template(key):
+    return "{{ value_json." + key + " | default('') }}"
+
+
 NUMERIC_SENSORS = [
+    # =========================================================================
+    # Main power flow
+    # =========================================================================
     {
         "key": "pv_power",
         "name": "PV Power",
@@ -59,6 +74,10 @@ NUMERIC_SENSORS = [
         "state_class": "measurement",
         "icon": "mdi:battery-charging",
     },
+
+    # =========================================================================
+    # Energy counters
+    # =========================================================================
     {
         "key": "daily_energy",
         "name": "Daily Energy",
@@ -87,7 +106,9 @@ NUMERIC_SENSORS = [
         "icon": "mdi:thermometer",
     },
 
+    # =========================================================================
     # PV strings / DC
+    # =========================================================================
     {
         "key": "pv1_power",
         "name": "PV1 Power",
@@ -116,7 +137,9 @@ NUMERIC_SENSORS = [
         "icon": "mdi:solar-power-variant",
     },
 
+    # =========================================================================
     # Raw Solis values
+    # =========================================================================
     {
         "key": "raw_power",
         "name": "Raw Power",
@@ -199,7 +222,9 @@ NUMERIC_SENSORS = [
         "icon": "mdi:battery-charging",
     },
 
+    # =========================================================================
     # Tempo
+    # =========================================================================
     {
         "key": "tempo",
         "name": "Tempo Today",
@@ -219,7 +244,9 @@ NUMERIC_SENSORS = [
         "icon": "mdi:calendar-arrow-right",
     },
 
-    # AI / forecast / supervision
+    # =========================================================================
+    # Forecast / AI / supervision
+    # =========================================================================
     {
         "key": "pv_forecast_kw",
         "name": "PV Forecast",
@@ -275,7 +302,9 @@ NUMERIC_SENSORS = [
         "icon": "mdi:numeric",
     },
 
+    # =========================================================================
     # PV diagnostic
+    # =========================================================================
     {
         "key": "pv_string_imbalance_pct",
         "name": "PV String Imbalance",
@@ -285,32 +314,106 @@ NUMERIC_SENSORS = [
         "state_class": "measurement",
         "icon": "mdi:solar-panel-large",
     },
+]
 
-    # Calculated helpers for dashboard compatibility
+
+CALCULATED_SENSORS = [
+    # =========================================================================
+    # Dashboard aliases / calculated helpers
+    # =========================================================================
     {
-        "key": "_calc_autoconsumption_pct",
         "name": "Autoconsumption",
         "object_id": "solid_autoconsumption_pct",
         "unit": "%",
         "device_class": None,
         "state_class": "measurement",
         "icon": "mdi:home-percent",
-        "template": "{% set pv = value_json.pv_power | float(0) %}{% set grid = value_json.grid_power | float(0) %}{% if pv > 0 %}{{ (((pv - [grid, 0] | max) / pv) * 100) | round(1) }}{% else %}0{% endif %}",
+        "template": (
+            "{% set pv = value_json.pv_power | float(0) %}"
+            "{% set load = value_json.load_power | float(0) %}"
+            "{% if pv > 0 %}"
+            "{{ ([load, pv] | min / pv * 100) | round(1) }}"
+            "{% else %}0{% endif %}"
+        ),
     },
     {
-        "key": "_calc_forecast_load_gap_kw",
+        "name": "Autoconso",
+        "object_id": "solid_autoconso_pct",
+        "unit": "%",
+        "device_class": None,
+        "state_class": "measurement",
+        "icon": "mdi:home-percent",
+        "template": (
+            "{% set pv = value_json.pv_power | float(0) %}"
+            "{% set load = value_json.load_power | float(0) %}"
+            "{% if pv > 0 %}"
+            "{{ ([load, pv] | min / pv * 100) | round(1) }}"
+            "{% else %}0{% endif %}"
+        ),
+    },
+    {
         "name": "Forecast Load Gap",
         "object_id": "solid_forecast_load_gap_kw",
         "unit": "kW",
         "device_class": "power",
         "state_class": "measurement",
         "icon": "mdi:delta",
-        "template": "{{ ((value_json.habit_load_next_6h_kw | float(0)) - (value_json.pv_forecast_kw | float(0))) | round(2) }}",
+        "template": (
+            "{{ ((value_json.habit_load_next_6h_kw | float(0)) "
+            "- (value_json.pv_forecast_kw | float(0))) | round(2) }}"
+        ),
+    },
+    {
+        "name": "Ecart Prevision Conso",
+        "object_id": "solid_ecart_prev_conso_kw",
+        "unit": "kW",
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:delta",
+        "template": (
+            "{{ ((value_json.habit_load_next_6h_kw | float(0)) "
+            "- (value_json.pv_forecast_kw | float(0))) | round(2) }}"
+        ),
+    },
+    {
+        "name": "Battery Full Calculated",
+        "object_id": "solid_battery_full_calc_h",
+        "unit": "h",
+        "device_class": None,
+        "state_class": "measurement",
+        "icon": "mdi:battery-clock",
+        "template": (
+            "{% set soc = value_json.battery_soc | float(0) %}"
+            "{% set p = value_json.battery_power | float(0) %}"
+            "{% set cap = 30 %}"
+            "{% if p > 0 and soc < 100 %}"
+            "{{ (((100 - soc) / 100 * cap) / p) | round(2) }}"
+            "{% else %}0{% endif %}"
+        ),
+    },
+    {
+        "name": "Batt Pleine",
+        "object_id": "solid_batt_pleine_h",
+        "unit": "h",
+        "device_class": None,
+        "state_class": "measurement",
+        "icon": "mdi:battery-clock",
+        "template": (
+            "{% set soc = value_json.battery_soc | float(0) %}"
+            "{% set p = value_json.battery_power | float(0) %}"
+            "{% set cap = 30 %}"
+            "{% if p > 0 and soc < 100 %}"
+            "{{ (((100 - soc) / 100 * cap) / p) | round(2) }}"
+            "{% else %}0{% endif %}"
+        ),
     },
 ]
 
 
 TEXT_SENSORS = [
+    # =========================================================================
+    # Tempo labels
+    # =========================================================================
     {
         "key": "tempo_label",
         "name": "Tempo Label",
@@ -323,11 +426,21 @@ TEXT_SENSORS = [
         "object_id": "solid_tempo_tomorrow_label",
         "icon": "mdi:calendar-arrow-right",
     },
+
+    # =========================================================================
+    # AI supervision
+    # =========================================================================
     {
         "key": "advice",
         "name": "AI Advice",
         "object_id": "solid_advice",
         "icon": "mdi:lightbulb-on-outline",
+    },
+    {
+        "key": "advice",
+        "name": "Supervision IA",
+        "object_id": "solid_supervision_ia",
+        "icon": "mdi:brain",
     },
     {
         "key": "prediction",
@@ -353,6 +466,10 @@ TEXT_SENSORS = [
         "object_id": "solid_advice_confidence",
         "icon": "mdi:check-decagram",
     },
+
+    # =========================================================================
+    # PV diagnostic
+    # =========================================================================
     {
         "key": "pv_string_status",
         "name": "PV String Status",
@@ -365,6 +482,16 @@ TEXT_SENSORS = [
         "object_id": "solid_pv_string_alert",
         "icon": "mdi:alert-circle-outline",
     },
+    {
+        "key": "pv_string_alert",
+        "name": "Diagnostic PV",
+        "object_id": "solid_diag_pv",
+        "icon": "mdi:solar-panel-large",
+    },
+
+    # =========================================================================
+    # Timestamp
+    # =========================================================================
     {
         "key": "timestamp",
         "name": "Timestamp",
@@ -388,10 +515,10 @@ def _publish_config(mqtt, topic, config):
 
 
 def _numeric_sensor_config(sensor, state_topic):
-    template = sensor.get("template")
-
-    if not template:
-        template = "{{ value_json." + sensor["key"] + " }}"
+    if sensor.get("template"):
+        template = sensor["template"]
+    else:
+        template = numeric_template(sensor["key"])
 
     config = {
         "name": sensor["name"],
@@ -421,7 +548,7 @@ def _text_sensor_config(sensor, state_topic):
         "object_id": sensor["object_id"],
         "unique_id": sensor["object_id"],
         "state_topic": state_topic,
-        "value_template": "{{ value_json." + sensor["key"] + " }}",
+        "value_template": text_template(sensor["key"]),
         "device": DEVICE,
         "icon": sensor.get("icon"),
     }
@@ -447,6 +574,10 @@ def publish_discovery(mqtt, state_topic=STATE_TOPIC_DEFAULT, *args, **kwargs):
     )
 
     for sensor in NUMERIC_SENSORS:
+        topic = f"{discovery_prefix}/sensor/{sensor['object_id']}/config"
+        _publish_config(mqtt, topic, _numeric_sensor_config(sensor, state_topic))
+
+    for sensor in CALCULATED_SENSORS:
         topic = f"{discovery_prefix}/sensor/{sensor['object_id']}/config"
         _publish_config(mqtt, topic, _numeric_sensor_config(sensor, state_topic))
 

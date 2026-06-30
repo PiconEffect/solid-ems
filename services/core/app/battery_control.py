@@ -19,11 +19,15 @@ class BatteryControl:
 
         self.base_url = "https://www.soliscloud.com:13333"
         self.content_type = os.getenv("SOLIS_CONTROL_CONTENT_TYPE", "application/json")
-
         self.language = os.getenv("SOLIS_CONTROL_LANGUAGE", "2")
 
         self.dry_run = (
             os.getenv("SOLIS_CONTROL_DRY_RUN", "true").lower()
+            in ["1", "true", "yes", "on"]
+        )
+
+        self.auto_validate = (
+            os.getenv("SOLIS_CONTROL_AUTO_VALIDATE", "true").lower()
             in ["1", "true", "yes", "on"]
         )
 
@@ -37,13 +41,22 @@ class BatteryControl:
         self.cid_new_earning_marker = 6798
         self.cid_charge_discharge_one_cid = 6972
 
+        self.marker_6798_value = None
         self.last_6972_value = None
         self.last_6972_backup_time = None
+        self.active_6972_value = None
+
+        self.validation_done = False
+        self.last_validation_attempt = 0
+        self.validation_retry_interval_s = 300
 
         print(
             f"BATTERY CONTROL initialized dry_run={self.dry_run} inverter_sn={self._safe(self.inverter_sn)}",
             flush=True,
         )
+
+        if self.inverter_sn and self.auto_validate:
+            self.validate_solis_charge_discharge_settings(force=False)
 
     def _safe(self, value):
         if value is None:
@@ -72,6 +85,9 @@ class BatteryControl:
                 f"BATTERY CONTROL inverter SN updated: {self._safe(self.inverter_sn)}",
                 flush=True,
             )
+
+        if self.inverter_sn and self.auto_validate and not self.validation_done:
+            self.validate_solis_charge_discharge_settings(force=False)
 
     def _now_gmt(self):
         return datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
@@ -196,7 +212,6 @@ class BatteryControl:
             return None
 
         token = None
-
         body = data.get("data")
 
         if isinstance(body, dict):
@@ -221,6 +236,121 @@ class BatteryControl:
         print("BATTERY CONTROL login OK, token received", flush=True)
 
         return self.token
+
+    def _extract_read_value(self, response):
+        if not isinstance(response, dict):
+            return None
+
+        data = response.get("data")
+
+        if isinstance(data, dict):
+            for key in ["msg", "value", "result", "data"]:
+                if key in data and data.get(key) is not None:
+                    return str(data.get(key))
+
+        for key in ["msg", "value", "result"]:
+            if key in response and response.get(key) is not None:
+                return str(response.get(key))
+
+        return None
+
+    def read_cid(self, cid):
+        if not self.inverter_sn:
+            print(f"BATTERY CONTROL read CID {cid} skipped: missing inverter SN", flush=True)
+            return None
+
+        payload = {
+            "inverterSn": self.inverter_sn,
+            "cid": int(cid),
+        }
+
+        response = self._post("/v2/api/atRead", payload)
+
+        value = self._extract_read_value(response)
+
+        if value is None:
+            print(f"BATTERY CONTROL read CID {cid} failed: {response}", flush=True)
+            return None
+
+        print(f"BATTERY CONTROL read CID {cid} = {value}", flush=True)
+
+        return value
+
+    def validate_solis_charge_discharge_settings(self, force=False):
+        now = time.time()
+
+        if not force:
+            if now - self.last_validation_attempt < self.validation_retry_interval_s:
+                return self.validation_done
+
+        self.last_validation_attempt = now
+
+        if not self.inverter_sn:
+            print("BATTERY CONTROL validation skipped: missing inverter SN", flush=True)
+            return False
+
+        print("BATTERY CONTROL validation started", flush=True)
+
+        marker = self.read_cid(self.cid_new_earning_marker)
+
+        if marker is not None:
+            self.marker_6798_value = marker
+            print(f"BATTERY CONTROL CID 6798 marker value: {marker}", flush=True)
+
+            marker_normalized = str(marker).strip().lower()
+
+            if marker_normalized in ["0xaa55", "aa55", "43605"]:
+                print(
+                    "BATTERY CONTROL new optimized earning parameters detected",
+                    flush=True,
+                )
+            else:
+                print(
+                    "BATTERY CONTROL warning: CID 6798 is not 0xAA55. CID 6972 may not be supported on this inverter/firmware.",
+                    flush=True,
+                )
+        else:
+            print(
+                "BATTERY CONTROL warning: unable to read CID 6798 marker",
+                flush=True,
+            )
+
+        value_6972 = self.read_cid(self.cid_charge_discharge_one_cid)
+
+        if not value_6972:
+            print(
+                "BATTERY CONTROL validation failed: unable to read CID 6972",
+                flush=True,
+            )
+            self.validation_done = False
+            return False
+
+        self.set_current_6972_value(value_6972)
+
+        groups = self.split_6972_groups(value_6972)
+
+        print(
+            f"BATTERY CONTROL CID 6972 groups detected: {len(groups)}",
+            flush=True,
+        )
+
+        if len(groups) != 12:
+            print(
+                "BATTERY CONTROL warning: expected 12 groups for CID 6972, check inverter format before enabling real writes",
+                flush=True,
+            )
+            self.validation_done = False
+            return False
+
+        inhibit_value = self.build_inhibit_6972_value(value_6972)
+
+        print("BATTERY CONTROL validation OK: CID 6972 backup available", flush=True)
+        print(f"BATTERY CONTROL current 6972 yuanzhi: {value_6972}", flush=True)
+        print(f"BATTERY CONTROL dry-run inhibit value: {inhibit_value}", flush=True)
+
+        self.validation_done = True
+
+        return True
 
     def set_current_6972_value(self, value):
         if not value:
@@ -260,35 +390,22 @@ class BatteryControl:
 
         return ",".join(flat)
 
-    def default_6972_value_all_off(self):
-        groups = []
-
-        for _ in range(12):
-            groups.append([
-                "0",
-                "00:00-00:00",
-                "0",
-                "20",
-                "48",
-            ])
-
-        return self.join_6972_groups(groups)
-
     def build_inhibit_6972_value(self, current_value):
         if not current_value:
             print(
-                "BATTERY CONTROL no current 6972 value available, using all-off dry-run template",
+                "BATTERY CONTROL no current 6972 value available, cannot build safe inhibit value",
                 flush=True,
             )
-            return self.default_6972_value_all_off()
+            return None
 
         groups = self.split_6972_groups(current_value)
 
-        if len(groups) < 12:
+        if len(groups) != 12:
             print(
-                f"BATTERY CONTROL WARNING: 6972 has {len(groups)} groups, expected 12",
+                f"BATTERY CONTROL cannot safely build inhibit value: 6972 has {len(groups)} groups, expected 12",
                 flush=True,
             )
+            return None
 
         new_groups = []
 
@@ -319,6 +436,10 @@ class BatteryControl:
         enabled = command.get("enabled")
         duration_h = command.get("duration_h")
 
+        if action == "validate_6972":
+            self.validate_solis_charge_discharge_settings(force=True)
+            return
+
         if action == "inhibit_discharge" or enabled is True:
             self.inhibit_discharge(mode=mode, duration_h=duration_h)
             return
@@ -329,6 +450,10 @@ class BatteryControl:
 
         if action == "arm_inhibit_discharge":
             print("BATTERY CONTROL armed for off-peak window", flush=True)
+
+            if self.auto_validate and not self.validation_done:
+                self.validate_solis_charge_discharge_settings(force=False)
+
             return
 
         print("BATTERY CONTROL unsupported command:", command, flush=True)
@@ -339,13 +464,30 @@ class BatteryControl:
             flush=True,
         )
 
+        if not self.validation_done:
+            self.validate_solis_charge_discharge_settings(force=True)
+
+        if not self.last_6972_value:
+            print(
+                "BATTERY CONTROL inhibit blocked: no CID 6972 backup available",
+                flush=True,
+            )
+            return
+
         new_value = self.build_inhibit_6972_value(self.last_6972_value)
+
+        if not new_value:
+            print(
+                "BATTERY CONTROL inhibit blocked: unable to build safe CID 6972 value",
+                flush=True,
+            )
+            return
 
         payload = {
             "cid": str(self.cid_charge_discharge_one_cid),
             "inverterSn": self.inverter_sn,
             "value": new_value,
-            "yuanzhi": self.last_6972_value or new_value,
+            "yuanzhi": self.last_6972_value,
             "language": self.language,
         }
 
@@ -358,36 +500,35 @@ class BatteryControl:
             print("BATTERY CONTROL blocked: missing inverter SN", flush=True)
             return
 
-        if not self.last_6972_value:
-            print(
-                "BATTERY CONTROL blocked: missing current 6972 backup. Real write requires yuanzhi.",
-                flush=True,
-            )
-            return
-
         token = self.login()
 
         if not token:
             print("BATTERY CONTROL blocked: no token", flush=True)
             return
 
-        self._post("/v2/api/control", payload, token=token)
+        response = self._post("/v2/api/control", payload, token=token)
+
+        print("BATTERY CONTROL inhibit response:", response, flush=True)
+
+        self.active_6972_value = new_value
 
     def resume_discharge(self, mode="manual"):
         print(f"BATTERY CONTROL resume discharge requested mode={mode}", flush=True)
 
         if not self.last_6972_value:
             print(
-                "BATTERY CONTROL restore skipped: no previous 6972 backup available",
+                "BATTERY CONTROL restore skipped: no previous CID 6972 backup available",
                 flush=True,
             )
             return
+
+        current_yuanzhi = self.active_6972_value or self.last_6972_value
 
         payload = {
             "cid": str(self.cid_charge_discharge_one_cid),
             "inverterSn": self.inverter_sn,
             "value": self.last_6972_value,
-            "yuanzhi": self.last_6972_value,
+            "yuanzhi": current_yuanzhi,
             "language": self.language,
         }
 
@@ -402,4 +543,8 @@ class BatteryControl:
             print("BATTERY CONTROL restore blocked: no token", flush=True)
             return
 
-        self._post("/v2/api/control", payload, token=token)
+        response = self._post("/v2/api/control", payload, token=token)
+
+        print("BATTERY CONTROL restore response:", response, flush=True)
+
+        self.active_6972_value = None

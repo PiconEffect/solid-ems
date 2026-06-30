@@ -20,6 +20,7 @@ class BatteryControl:
         self.language = os.getenv("SOLIS_CONTROL_LANGUAGE", "2")
         self.dry_run = os.getenv("SOLIS_CONTROL_DRY_RUN", "true").lower() in ["1", "true", "yes", "on"]
         self.allow_real_write = os.getenv("SOLIS_CONTROL_ALLOW_REAL_WRITE", "false").lower() in ["1", "true", "yes", "on"]
+        self.enable_mode_plan = os.getenv("SOLIS_CONTROL_ENABLE_MODE_PLAN", "false").lower() in ["1", "true", "yes", "on"]
         self.auto_validate = os.getenv("SOLIS_CONTROL_AUTO_VALIDATE", "true").lower() in ["1", "true", "yes", "on"]
         self.read_spacing_s = float(os.getenv("SOLIS_CONTROL_READ_SPACING_S", "0.70"))
         self.last_read_time = 0.0
@@ -391,6 +392,18 @@ class BatteryControl:
         if not self.allow_real_write:
             print(
                 "BATTERY CONTROL REAL WRITE BLOCKED: SOLIS_CONTROL_ALLOW_REAL_WRITE is not true",
+                flush=True,
+            )
+            return {
+                "success": False,
+                "blocked": True,
+                "description": description,
+                "payload": payload,
+            }
+
+        if not self.enable_mode_plan:
+            print(
+                "BATTERY CONTROL REAL WRITE BLOCKED: SOLIS_CONTROL_ENABLE_MODE_PLAN is not true",
                 flush=True,
             )
             return {

@@ -1,7 +1,9 @@
 import json
 
+
 STATE_TOPIC_DEFAULT = "solid/state"
 DISCOVERY_PREFIX_DEFAULT = "homeassistant"
+
 
 DEVICE = {
     "identifiers": ["solid_ems"],
@@ -45,7 +47,11 @@ def tpl_pv_forecast_fallback():
     return (
         "{% set pvf = value_json.pv_forecast_kw | float(0) %}"
         "{% set pv = value_json.pv_power | float(0) %}"
-        "{% if pvf > 0 %}{{ pvf | round(2) }}{% else %}{{ pv | round(2) }}{% endif %}"
+        "{% if pvf > 0 %}"
+        "{{ pvf | round(2) }}"
+        "{% else %}"
+        "{{ pv | round(2) }}"
+        "{% endif %}"
     )
 
 
@@ -53,7 +59,11 @@ def tpl_habit_load_now_fallback():
     return (
         "{% set habit = value_json.habit_load_now_kw | float(0) %}"
         "{% set load = value_json.load_power | float(0) %}"
-        "{% if habit > 0 %}{{ habit | round(2) }}{% else %}{{ load | round(2) }}{% endif %}"
+        "{% if habit > 0 %}"
+        "{{ habit | round(2) }}"
+        "{% else %}"
+        "{{ load | round(2) }}"
+        "{% endif %}"
     )
 
 
@@ -61,30 +71,11 @@ def tpl_habit_load_next_6h_fallback():
     return (
         "{% set habit = value_json.habit_load_next_6h_kw | float(0) %}"
         "{% set load = value_json.load_power | float(0) %}"
-        "{% if habit > 0 %}{{ habit | round(2) }}{% else %}{{ load | round(2) }}{% endif %}"
-    )
-
-
-def tpl_ecart_prevision_conso():
-    return (
-        "{% set habit = value_json.habit_load_next_6h_kw | float(0) %}"
-        "{% set load = value_json.load_power | float(0) %}"
-        "{% set conso = habit if habit > 0 else load %}"
-        "{% set pvf = value_json.pv_forecast_kw | float(0) %}"
-        "{% set pv = value_json.pv_power | float(0) %}"
-        "{% set forecast = pvf if pvf > 0 else pv %}"
-        "{{ (conso - forecast) | round(2) }}"
-    )
-
-
-def tpl_autoconso():
-    return (
-        "{% set pv = value_json.pv_power | float(0) %}"
-        "{% set load = value_json.load_power | float(0) %}"
-        "{% if pv > 0 %}"
-        "{% set used = load if load < pv else pv %}"
-        "{{ (used / pv * 100) | round(1) }}"
-        "{% else %}0{% endif %}"
+        "{% if habit > 0 %}"
+        "{{ habit | round(2) }}"
+        "{% else %}"
+        "{{ load | round(2) }}"
+        "{% endif %}"
     )
 
 
@@ -94,153 +85,337 @@ def tpl_pv_string_imbalance():
         "{% set pv1 = value_json.pv1_power | float(0) %}"
         "{% set pv2 = value_json.pv2_power | float(0) %}"
         "{% set den = pv1 + pv2 %}"
-        "{% if src > 0 %}{{ src | round(1) }}"
-        "{% elif den > 0 %}{{ (((pv1 - pv2) | abs) / den * 100) | round(1) }}"
+        "{% if src > 0 %}"
+        "{{ src | round(1) }}"
+        "{% elif den > 0 %}"
+        "{{ (((pv1 - pv2) | abs) / den * 100) | round(1) }}"
         "{% else %}0{% endif %}"
     )
 
 
 SENSORS = {
-    # Flux principal / Solis de base
-    "pv_power": {"name": "PV Power", "object_id": "solid_ems_solid_pv_power", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:solar-power"},
-    "battery_soc": {"name": "Battery SOC", "object_id": "solid_ems_solid_battery_soc", "unit": "%", "device_class": "battery", "state_class": "measurement", "icon": "mdi:battery"},
-    "grid_power": {"name": "Grid Power", "object_id": "solid_ems_solid_grid_power", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:transmission-tower"},
-    "load_power": {"name": "Home Load", "object_id": "solid_ems_solid_home_load", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:home-lightning-bolt"},
-    "battery_power": {"name": "Battery Power", "object_id": "solid_ems_solid_battery_power", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:battery-charging"},
-    "daily_energy": {"name": "Daily Energy", "object_id": "solid_ems_solid_daily_energy", "unit": "kWh", "device_class": "energy", "state_class": "total_increasing", "icon": "mdi:counter"},
-    "total_energy": {"name": "Total Energy", "object_id": "solid_ems_solid_total_energy", "unit": "MWh", "device_class": "energy", "state_class": "total_increasing", "icon": "mdi:counter"},
-    "inverter_temp": {"name": "Inverter Temperature", "object_id": "solid_ems_solid_inverter_temperature", "unit": "°C", "device_class": "temperature", "state_class": "measurement", "icon": "mdi:thermometer"},
+    # -------------------------------------------------------------------------
+    # Dashboard principal SOLID EMS
+    # -------------------------------------------------------------------------
+    "solid_ems_solid_pv_power": {
+        "name": "PV Power",
+        "key": "pv_power",
+        "unit": "kW",
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:solar-power",
+    },
+    "solid_ems_solid_battery_soc": {
+        "name": "Battery SOC",
+        "key": "battery_soc",
+        "unit": "%",
+        "device_class": "battery",
+        "state_class": "measurement",
+        "icon": "mdi:battery",
+    },
+    "solid_ems_solid_grid_power": {
+        "name": "Grid Power",
+        "key": "grid_power",
+        "unit": "kW",
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:transmission-tower",
+    },
+    "solid_ems_solid_home_load": {
+        "name": "Home Load",
+        "key": "load_power",
+        "unit": "kW",
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:home-lightning-bolt",
+    },
+    "solid_ems_solid_battery_power": {
+        "name": "Battery Power",
+        "key": "battery_power",
+        "unit": "kW",
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:battery-charging",
+    },
+    "solid_ems_solid_daily_energy": {
+        "name": "Daily Energy",
+        "key": "daily_energy",
+        "unit": "kWh",
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:counter",
+    },
+    "solid_ems_solid_total_energy": {
+        "name": "Total Energy",
+        "key": "total_energy",
+        "unit": "MWh",
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:counter",
+    },
+    "solid_ems_solid_tempo": {
+        "name": "Tempo",
+        "key": "tempo",
+        "icon": "mdi:calendar-today",
+    },
 
-    # PV / MPPT / raw
-    "pv1_power": {"name": "PV String 1 Power", "object_id": "solid_ems_solid_pv_string_1_power", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:solar-panel"},
-    "pv2_power": {"name": "PV String 2 Power", "object_id": "solid_ems_solid_pv_string_2_power", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:solar-panel-large"},
-    "pv_total_dc_power": {"name": "PV DC Total Power", "object_id": "solid_ems_solid_pv_dc_total_power", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:solar-power-variant"},
-    "raw_power": {"name": "Raw Power", "object_id": "solid_ems_solid_raw_power", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:alpha-p-circle"},
-    "raw_pac": {"name": "Raw PAC", "object_id": "solid_ems_solid_raw_pac", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:sine-wave"},
-    "raw_pow1_kw": {"name": "Raw MPPT1", "object_id": "solid_ems_solid_raw_mppt1", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:solar-panel"},
-    "raw_pow2_kw": {"name": "Raw MPPT2", "object_id": "solid_ems_solid_raw_mppt2", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:solar-panel-large"},
-    "raw_pv_dc_kw": {"name": "Raw PV DC", "object_id": "solid_ems_solid_raw_pv_dc", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:solar-power-variant"},
-    "raw_family_load": {"name": "Raw Family Load", "object_id": "solid_ems_solid_raw_family_load", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:home-lightning-bolt"},
-    "raw_total_load": {"name": "Raw Total Load", "object_id": "solid_ems_solid_raw_total_load", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:home-lightning-bolt-outline"},
-    "raw_grid_psum": {"name": "Raw Grid PSUM", "object_id": "solid_ems_solid_raw_grid_psum", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:transmission-tower"},
-    "raw_battery_power": {"name": "Raw Battery Power", "object_id": "solid_ems_solid_raw_battery_power", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:battery-charging"},
+    # -------------------------------------------------------------------------
+    # IA / supervision dashboard
+    # -------------------------------------------------------------------------
+    "solid_ems_solid_ai_advice": {
+        "name": "AI Advice",
+        "key": "advice",
+        "icon": "mdi:brain",
+        "text": True,
+    },
+    "solid_ems_solid_prediction": {
+        "name": "Prediction",
+        "key": "prediction",
+        "icon": "mdi:crystal-ball",
+        "text": True,
+    },
+    "panneaux_solaires_solid_ems_solid_energy_mode": {
+        "name": "Energy Mode",
+        "key": "energy_mode",
+        "icon": "mdi:home-lightning-bolt",
+        "text": True,
+    },
+    "panneaux_solaires_solid_ems_solid_battery_strategy": {
+        "name": "Battery Strategy",
+        "key": "battery_strategy",
+        "icon": "mdi:battery-clock",
+        "text": True,
+    },
+    "panneaux_solaires_solid_ems_solid_ai_advice_priority": {
+        "name": "AI Advice Priority",
+        "key": "advice_priority",
+        "state_class": "measurement",
+        "icon": "mdi:alert-decagram",
+    },
+    "panneaux_solaires_solid_ems_solid_ai_advice_confidence": {
+        "name": "AI Advice Confidence",
+        "key": "advice_confidence",
+        "icon": "mdi:shield-check",
+        "text": True,
+    },
 
-    # IA / stratégie / forecast - noms originaux
-    "advice": {"name": "AI Advice", "object_id": "solid_ems_solid_ai_advice", "icon": "mdi:brain"},
-    "prediction": {"name": "Prediction", "object_id": "solid_ems_solid_prediction", "icon": "mdi:crystal-ball"},
-    "energy_mode": {"name": "Energy Mode", "object_id": "solid_ems_solid_energy_mode", "icon": "mdi:home-lightning-bolt"},
-    "battery_strategy": {"name": "Battery Strategy", "object_id": "solid_ems_solid_battery_strategy", "icon": "mdi:battery-clock"},
-    "advice_priority": {"name": "AI Advice Priority", "object_id": "solid_ems_solid_ai_advice_priority", "state_class": "measurement", "icon": "mdi:alert-decagram"},
-    "advice_confidence": {"name": "AI Advice Confidence", "object_id": "solid_ems_solid_ai_advice_confidence", "icon": "mdi:shield-check"},
+    # -------------------------------------------------------------------------
+    # IA numériques avec fallback
+    # -------------------------------------------------------------------------
+    "panneaux_solaires_solid_ems_solid_estimated_autonomy": {
+        "name": "Estimated Autonomy",
+        "unit": "h",
+        "state_class": "measurement",
+        "icon": "mdi:timer-sand",
+        "template": tpl_autonomy(),
+    },
+    "panneaux_solaires_solid_ems_solid_estimated_battery_full": {
+        "name": "Estimated Battery Full",
+        "unit": "h",
+        "state_class": "measurement",
+        "icon": "mdi:battery-clock",
+        "template": tpl_batt_full(),
+    },
+    "panneaux_solaires_solid_ems_solid_habit_load_now": {
+        "name": "Habit Load Now",
+        "unit": "kW",
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:chart-bell-curve",
+        "template": tpl_habit_load_now_fallback(),
+    },
+    "panneaux_solaires_solid_ems_solid_habit_load_next_6h": {
+        "name": "Habit Load Next 6h",
+        "unit": "kW",
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:chart-timeline-variant",
+        "template": tpl_habit_load_next_6h_fallback(),
+    },
+    "panneaux_solaires_solid_ems_solid_pv_forecast": {
+        "name": "PV Forecast",
+        "unit": "kW",
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:weather-sunny",
+        "template": tpl_pv_forecast_fallback(),
+    },
+    "solid_ems_solid_pv_forecast": {
+        "name": "PV Forecast",
+        "unit": "kW",
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:weather-sunny",
+        "template": tpl_pv_forecast_fallback(),
+    },
 
-    # Ces clés source valent parfois 0 dans solid/state. On publie les object_id originaux avec fallback plus bas en ALIASES.
-    "estimated_autonomy_h": {"name": "Estimated Autonomy", "object_id": "solid_ems_solid_estimated_autonomy", "unit": "h", "state_class": "measurement", "icon": "mdi:timer-sand"},
-    "estimated_battery_full_h": {"name": "Estimated Battery Full", "object_id": "solid_ems_solid_estimated_battery_full", "unit": "h", "state_class": "measurement", "icon": "mdi:battery-clock"},
-    "habit_load_now_kw": {"name": "Habit Load Now", "object_id": "solid_ems_solid_habit_load_now", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:chart-bell-curve"},
-    "habit_load_next_6h_kw": {"name": "Habit Load Next 6h", "object_id": "solid_ems_solid_habit_load_next_6h", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:chart-timeline-variant"},
-    "pv_forecast_kw": {"name": "PV Forecast", "object_id": "solid_ems_solid_pv_forecast", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:weather-sunny"},
+    # -------------------------------------------------------------------------
+    # PV strings / diagnostic
+    # -------------------------------------------------------------------------
+    "panneaux_solaires_solid_ems_solid_pv_string_1_power": {
+        "name": "PV String 1 Power",
+        "key": "pv1_power",
+        "unit": "kW",
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:solar-panel",
+    },
+    "panneaux_solaires_solid_ems_solid_pv_string_2_power": {
+        "name": "PV String 2 Power",
+        "key": "pv2_power",
+        "unit": "kW",
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:solar-panel-large",
+    },
+    "panneaux_solaires_solid_ems_solid_pv_dc_total_power": {
+        "name": "PV DC Total Power",
+        "key": "pv_total_dc_power",
+        "unit": "kW",
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:solar-power-variant",
+    },
+    "panneaux_solaires_solid_ems_solid_pv_string_status": {
+        "name": "PV String Status",
+        "key": "pv_string_status",
+        "icon": "mdi:solar-panel",
+        "text": True,
+    },
+    "panneaux_solaires_solid_ems_solid_pv_string_alert": {
+        "name": "PV String Alert",
+        "key": "pv_string_alert",
+        "icon": "mdi:alert-circle",
+        "text": True,
+    },
+    "panneaux_solaires_solid_ems_solid_pv_string_individual_deviation": {
+        "name": "PV String Individual Deviation",
+        "unit": "%",
+        "state_class": "measurement",
+        "icon": "mdi:scale-unbalanced",
+        "template": tpl_pv_string_imbalance(),
+    },
 
-    # Diagnostic PV
-    "pv_string_status": {"name": "PV String Status", "object_id": "solid_ems_solid_pv_string_status", "icon": "mdi:solar-panel"},
-    "pv_string_alert": {"name": "PV String Alert", "object_id": "solid_ems_solid_pv_string_alert", "icon": "mdi:alert-circle"},
-    "pv_string_imbalance_pct": {"name": "PV String Individual Deviation", "object_id": "solid_ems_solid_pv_string_individual_deviation", "unit": "%", "state_class": "measurement", "icon": "mdi:scale-unbalanced"},
+    # -------------------------------------------------------------------------
+    # Raw values dashboard
+    # -------------------------------------------------------------------------
+    "panneaux_solaires_solid_ems_solid_raw_battery_power": {
+        "name": "Raw Battery Power",
+        "key": "raw_battery_power",
+        "unit": "kW",
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:battery-charging",
+    },
+    "panneaux_solaires_solid_ems_solid_raw_family_load": {
+        "name": "Raw Family Load",
+        "key": "raw_family_load",
+        "unit": "kW",
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:home-lightning-bolt",
+    },
+    "panneaux_solaires_solid_ems_solid_raw_total_load": {
+        "name": "Raw Total Load",
+        "key": "raw_total_load",
+        "unit": "kW",
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:home-lightning-bolt-outline",
+    },
+    "panneaux_solaires_solid_ems_solid_raw_pac": {
+        "name": "Raw PAC",
+        "key": "raw_pac",
+        "unit": "kW",
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:sine-wave",
+    },
+    "panneaux_solaires_solid_ems_solid_raw_pv_dc": {
+        "name": "Raw PV DC",
+        "key": "raw_pv_dc_kw",
+        "unit": "kW",
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:solar-power-variant",
+    },
 
-    # Tempo
-    "tempo": {"name": "Tempo", "object_id": "solid_ems_solid_tempo", "icon": "mdi:calendar-today"},
-    "tempo_label": {"name": "Tempo Label", "object_id": "solid_ems_solid_tempo_label", "icon": "mdi:palette"},
-    "tempo_tomorrow": {"name": "Tempo Tomorrow", "object_id": "solid_ems_solid_tempo_tomorrow", "icon": "mdi:calendar-arrow-right"},
-    "tempo_tomorrow_label": {"name": "Tempo Tomorrow Label", "object_id": "solid_ems_solid_tempo_tomorrow_label", "icon": "mdi:palette-outline"},
+    # -------------------------------------------------------------------------
+    # Tempo labels dashboard
+    # -------------------------------------------------------------------------
+    "panneaux_solaires_solid_ems_solid_tempo_label": {
+        "name": "Tempo Label",
+        "key": "tempo_label",
+        "icon": "mdi:palette",
+        "text": True,
+    },
+    "panneaux_solaires_solid_ems_solid_tempo_tomorrow": {
+        "name": "Tempo Tomorrow",
+        "key": "tempo_tomorrow",
+        "icon": "mdi:calendar-arrow-right",
+    },
+    "panneaux_solaires_solid_ems_solid_tempo_tomorrow_label": {
+        "name": "Tempo Tomorrow Label",
+        "key": "tempo_tomorrow_label",
+        "icon": "mdi:palette-outline",
+        "text": True,
+    },
 }
 
-# Alias exacts vus dans Home Assistant actuellement.
-# Ceux-ci corrigent les entités à 0 créées par les anciennes découvertes MQTT.
-ALIASES = [
-    {"object_id": "panneaux_solaires_solid_ems_legacy_ecart_prevision_conso", "name": "Legacy Ecart Prevision Conso", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:delta", "template": tpl_ecart_prevision_conso()},
-    {"object_id": "panneaux_solaires_solid_ems_legacy_ecart_prevision_conso_2", "name": "Legacy Ecart Prevision Conso 2", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:delta", "template": tpl_ecart_prevision_conso()},
-    {"object_id": "panneaux_solaires_solid_ems_legacy_estimated_autonomy", "name": "Legacy Estimated Autonomy", "unit": "h", "state_class": "measurement", "icon": "mdi:timer-sand", "template": tpl_autonomy()},
-    {"object_id": "panneaux_solaires_solid_ems_legacy_estimated_autonomy_2", "name": "Legacy Estimated Autonomy 2", "unit": "h", "state_class": "measurement", "icon": "mdi:timer-sand", "template": tpl_autonomy()},
-    {"object_id": "panneaux_solaires_solid_ems_legacy_estimated_battery_full", "name": "Legacy Estimated Battery Full", "unit": "h", "state_class": "measurement", "icon": "mdi:battery-clock", "template": tpl_batt_full()},
-    {"object_id": "panneaux_solaires_solid_ems_legacy_estimated_battery_full_2", "name": "Legacy Estimated Battery Full 2", "unit": "h", "state_class": "measurement", "icon": "mdi:battery-clock", "template": tpl_batt_full()},
-    {"object_id": "panneaux_solaires_solid_ems_legacy_forecast_load_gap", "name": "Legacy Forecast Load Gap", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:delta", "template": tpl_ecart_prevision_conso()},
-    {"object_id": "panneaux_solaires_solid_ems_legacy_forecast_load_gap_2", "name": "Legacy Forecast Load Gap 2", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:delta", "template": tpl_ecart_prevision_conso()},
-    {"object_id": "panneaux_solaires_solid_ems_legacy_habit_load_next_6h", "name": "Legacy Habit Load Next 6h", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:chart-timeline-variant", "template": tpl_habit_load_next_6h_fallback()},
-    {"object_id": "panneaux_solaires_solid_ems_legacy_habit_load_next_6h_2", "name": "Legacy Habit Load Next 6h 2", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:chart-timeline-variant", "template": tpl_habit_load_next_6h_fallback()},
-    {"object_id": "panneaux_solaires_solid_ems_legacy_habit_load_now", "name": "Legacy Habit Load Now", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:chart-bell-curve", "template": tpl_habit_load_now_fallback()},
-    {"object_id": "panneaux_solaires_solid_ems_legacy_habit_load_now_2", "name": "Legacy Habit Load Now 2", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:chart-bell-curve", "template": tpl_habit_load_now_fallback()},
-    {"object_id": "panneaux_solaires_solid_ems_legacy_pv_forecast", "name": "Legacy PV Forecast", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:weather-sunny", "template": tpl_pv_forecast_fallback()},
-    {"object_id": "panneaux_solaires_solid_ems_legacy_pv_forecast_2", "name": "Legacy PV Forecast 2", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:weather-sunny", "template": tpl_pv_forecast_fallback()},
-    {"object_id": "panneaux_solaires_solid_ems_legacy_pv_string_imbalance", "name": "Legacy PV String Imbalance", "unit": "%", "state_class": "measurement", "icon": "mdi:scale-unbalanced", "template": tpl_pv_string_imbalance()},
-    {"object_id": "panneaux_solaires_solid_ems_legacy_pv_string_imbalance_2", "name": "Legacy PV String Imbalance 2", "unit": "%", "state_class": "measurement", "icon": "mdi:scale-unbalanced", "template": tpl_pv_string_imbalance()},
-    {"object_id": "panneaux_solaires_solid_ems_solid_estimated_autonomy", "name": "SOLID Estimated Autonomy", "unit": "h", "state_class": "measurement", "icon": "mdi:timer-sand", "template": tpl_autonomy()},
-    {"object_id": "panneaux_solaires_solid_ems_solid_estimated_battery_full", "name": "SOLID Estimated Battery Full", "unit": "h", "state_class": "measurement", "icon": "mdi:battery-clock", "template": tpl_batt_full()},
-    {"object_id": "panneaux_solaires_solid_ems_solid_habit_load_next_6h", "name": "SOLID Habit Load Next 6h", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:chart-timeline-variant", "template": tpl_habit_load_next_6h_fallback()},
-    {"object_id": "panneaux_solaires_solid_ems_solid_habit_load_now", "name": "SOLID Habit Load Now", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:chart-bell-curve", "template": tpl_habit_load_now_fallback()},
-    {"object_id": "panneaux_solaires_solid_ems_solid_pv_forecast", "name": "SOLID PV Forecast", "unit": "kW", "device_class": "power", "state_class": "measurement", "icon": "mdi:weather-sunny", "template": tpl_pv_forecast_fallback()},
-    {"object_id": "panneaux_solaires_solid_ems_solid_pv_string_individual_deviation", "name": "SOLID PV String Individual Deviation", "unit": "%", "state_class": "measurement", "icon": "mdi:scale-unbalanced", "template": tpl_pv_string_imbalance()},
-    {"object_id": "panneaux_solaires_solid_ems_solid_pv_string_individual_deviation_2", "name": "SOLID PV String Individual Deviation 2", "unit": "%", "state_class": "measurement", "icon": "mdi:scale-unbalanced", "template": tpl_pv_string_imbalance()},
-]
 
-
-def _is_text_sensor(meta):
-    if meta.get("unit"):
-        return False
-    if meta.get("device_class"):
-        return False
-    if meta.get("state_class"):
-        return False
-    return True
-
-
-def _state_template(key, meta):
+def _value_template(object_id, meta):
     if meta.get("template"):
         return meta["template"]
-    if _is_text_sensor(meta):
+
+    key = meta.get("key")
+
+    if meta.get("text"):
         return tpl_txt(key)
+
     return tpl_num(key)
 
 
-def _publish_config(mqtt, topic, config):
-    mqtt.publish(topic, json.dumps(config, ensure_ascii=False), retain=True)
+def _publish_config(mqtt, topic, payload):
+    mqtt.publish(
+        topic,
+        json.dumps(payload, ensure_ascii=False),
+        retain=True,
+    )
     print(f"MQTT Discovery published -> {topic}", flush=True)
 
 
-def _build_config(key, meta):
-    config = {
-        "name": meta["name"],
-        "object_id": meta["object_id"],
-        "unique_id": meta["object_id"],
-        "state_topic": STATE_TOPIC_DEFAULT,
-        "value_template": _state_template(key, meta),
-        "device": DEVICE,
-        "icon": meta.get("icon"),
-    }
-
-    if meta.get("unit"):
-        config["unit_of_measurement"] = meta["unit"]
-    if meta.get("device_class"):
-        config["device_class"] = meta["device_class"]
-    if meta.get("state_class"):
-        config["state_class"] = meta["state_class"]
-
-    return config
-
-
 def publish_discovery(mqtt, state_topic=STATE_TOPIC_DEFAULT, *args, **kwargs):
-    print("MQTT Discovery published", flush=True)
+    """
+    MQTT Discovery Home Assistant.
 
-    for key, meta in SENSORS.items():
-        topic = f"homeassistant/sensor/solid/{key}/config"
-        config = _build_config(key, meta)
-        if state_topic != STATE_TOPIC_DEFAULT:
-            config["state_topic"] = state_topic
+    Compatible avec :
+      publish_discovery(mqtt)
+      publish_discovery(mqtt, state_topic)
+    """
+
+    print("MQTT Discovery publish started", flush=True)
+
+    for object_id, meta in SENSORS.items():
+        config = {
+            "name": meta["name"],
+            "object_id": object_id,
+            "unique_id": object_id,
+            "state_topic": state_topic,
+            "value_template": _value_template(object_id, meta),
+            "device": DEVICE,
+            "icon": meta.get("icon"),
+        }
+
+        if meta.get("unit") is not None:
+            config["unit_of_measurement"] = meta["unit"]
+
+        if meta.get("device_class") is not None:
+            config["device_class"] = meta["device_class"]
+
+        if meta.get("state_class") is not None:
+            config["state_class"] = meta["state_class"]
+
+        topic = f"{DISCOVERY_PREFIX_DEFAULT}/sensor/{object_id}/config"
         _publish_config(mqtt, topic, config)
 
-    for meta in ALIASES:
-        object_id = meta["object_id"]
-        topic = f"homeassistant/sensor/{object_id}/config"
-        config = _build_config("", meta)
-        if state_topic != STATE_TOPIC_DEFAULT:
-            config["state_topic"] = state_topic
-        _publish_config(mqtt, topic, config)
-
-    print("MQTT Discovery completed", flush=True)
+    print(f"MQTT Discovery completed sensors={len(SENSORS)}", flush=True)

@@ -41,6 +41,13 @@ class BatteryControl:
         self.cid_new_earning_marker = 6798
         self.cid_charge_discharge_one_cid = 6972
 
+        self.mode_cids = {
+            636: "Storage Inverters Control Switching",
+            100: "Time of Use Select",
+            543: "Time of Use / Work mode candidate",
+            109: "Allow Grid Charging",
+        }
+
         self.marker_6798_value = None
         self.last_6972_value = None
         self.last_6972_backup_time = None
@@ -49,6 +56,8 @@ class BatteryControl:
         self.validation_done = False
         self.last_validation_attempt = 0
         self.validation_retry_interval_s = 300
+
+        self.last_mode_values = {}
 
         self.charge_switch_cids = [5916, 5917, 5918, 5919, 5920, 5921]
         self.discharge_switch_cids = [5922, 5923, 5924, 5925, 5926, 5927]
@@ -284,6 +293,7 @@ class BatteryControl:
             "please refresh",
             "try again later",
             "data error",
+            "datalogger returns data abnormally",
             "forbidden",
             "not found",
             "too many requests",
@@ -438,6 +448,36 @@ class BatteryControl:
         )
 
         return None
+
+    def validate_modes(self):
+        print("BATTERY CONTROL mode validation started", flush=True)
+
+        if not self.inverter_sn:
+            print("BATTERY CONTROL mode validation skipped: missing inverter SN", flush=True)
+            return False
+
+        values = {}
+
+        for cid, description in self.mode_cids.items():
+            value = self.read_cid(cid, attempts=3, delay_s=2)
+            values[str(cid)] = value
+
+            if value is None:
+                print(
+                    f"BATTERY CONTROL mode CID {cid} ({description}) = UNREADABLE",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"BATTERY CONTROL mode CID {cid} ({description}) = {value}",
+                    flush=True,
+                )
+
+        self.last_mode_values = values
+
+        print("BATTERY CONTROL mode validation summary:", values, flush=True)
+
+        return True
 
     def validate_solis_charge_discharge_settings(self, force=False):
         now = time.time()
@@ -738,6 +778,10 @@ class BatteryControl:
 
         if action == "validate_6972":
             self.validate_solis_charge_discharge_settings(force=True)
+            return
+
+        if action == "validate_modes":
+            self.validate_modes()
             return
 
         if action == "arm_inhibit_discharge":

@@ -31,6 +31,9 @@ class BatteryControl:
             in ["1", "true", "yes", "on"]
         )
 
+        self.read_spacing_s = float(os.getenv("SOLIS_CONTROL_READ_SPACING_S", "0.70"))
+        self.last_read_time = 0.0
+
         self.token = None
         self.token_time = 0
         self.token_validity_s = 3600
@@ -46,6 +49,19 @@ class BatteryControl:
         self.validation_done = False
         self.last_validation_attempt = 0
         self.validation_retry_interval_s = 300
+
+        self.charge_switch_cids = [5916, 5917, 5918, 5919, 5920, 5921]
+        self.discharge_switch_cids = [5922, 5923, 5924, 5925, 5926, 5927]
+
+        self.charge_soc_cids = [5928, 5929, 5930, 5931, 5932, 5933]
+        self.charge_time_cids = [5946, 5949, 5952, 5955, 5958, 5961]
+        self.charge_voltage_cids = [5947, 5950, 5953, 5956, 5959, 5962]
+        self.charge_current_cids = [5948, 5951, 5954, 5957, 5960, 5963]
+
+        self.discharge_time_cids = [5964, 5968, 5972, 5976, 5980, 5987]
+        self.discharge_soc_cids = [5965, 5969, 5973, 5977, 5981, 5984]
+        self.discharge_voltage_cids = [5966, 5970, 5974, 5978, 5982, 5985]
+        self.discharge_current_cids = [5967, 5971, 5975, 5979, 5983, 5986]
 
         print(
             f"BATTERY CONTROL initialized dry_run={self.dry_run} inverter_sn={self._safe(self.inverter_sn)}",
@@ -274,6 +290,68 @@ class BatteryControl:
 
         return any(keyword in text for keyword in error_keywords)
 
+    def _throttle_read(self):
+        now = time.time()
+        elapsed = now - self.last_read_time
+
+        if elapsed < self.read_spacing_s:
+            time.sleep(self.read_spacing_s - elapsed)
+
+        self.last_read_time = time.time()
+
+    def _looks_like_time_slot(self, value):
+        if value is None:
+            return False
+
+        text = str(value).strip()
+
+        if "-" in text:
+            parts = text.split("-")
+        elif "~" in text:
+            parts = text.split("~")
+        else:
+            return False
+
+        return len(parts) == 2 and ":" in parts[0] and ":" in parts[1]
+
+    def _normalize_time_slot(self, value):
+        if value is None:
+            return "00:00-00:00"
+
+        text = str(value).strip()
+        text = text.replace("~", "-")
+        text = text.replace(" ", "")
+
+        if not self._looks_like_time_slot(text):
+            return "00:00-00:00"
+
+        return text
+
+    def _normalize_switch(self, value):
+        text = str(value).strip()
+
+        if text in ["0", "off", "OFF", "false", "False"]:
+            return "0"
+
+        if text in ["1", "on", "ON", "true", "True"]:
+            return "1"
+
+        return "0"
+
+    def _normalize_numeric(self, value, default_value):
+        if value is None:
+            return str(default_value)
+
+        text = str(value).strip()
+
+        if text == "":
+            return str(default_value)
+
+        if self._is_error_value(text):
+            return str(default_value)
+
+        return text
+
     def _looks_like_6972_value(self, value):
         if self._is_error_value(value):
             return False
@@ -299,7 +377,7 @@ class BatteryControl:
                 )
                 return False
 
-            if "-" not in time_slot:
+            if not self._looks_like_time_slot(time_slot):
                 print(
                     f"BATTERY CONTROL CID 6972 invalid time slot in group {group_index + 1}: {time_slot}",
                     flush=True,
@@ -312,6 +390,8 @@ class BatteryControl:
         if not self.inverter_sn:
             print(f"BATTERY CONTROL read CID {cid} skipped: missing inverter SN", flush=True)
             return None
+
+        self._throttle_read()
 
         payload = {
             "inverterSn": self.inverter_sn,
@@ -330,7 +410,7 @@ class BatteryControl:
 
         return value
 
-    def read_cid(self, cid, attempts=3, delay_s=2):
+    def read_cid(self, cid, attempts=2, delay_s=1):
         last_value = None
 
         for attempt in range(1, attempts + 1):
@@ -386,7 +466,7 @@ class BatteryControl:
                 )
             else:
                 print(
-                    "BATTERY CONTROL warning: CID 6798 is not 0xAA55. CID 6972 may not be supported on this inverter/firmware.",
+                    "BATTERY CONTROL warning: CID 6798 is not 0xAA55. CID 6972/fallback may not match this firmware.",
                     flush=True,
                 )
         else:
@@ -397,52 +477,180 @@ class BatteryControl:
 
         value_6972 = self.read_cid(
             self.cid_charge_discharge_one_cid,
-            attempts=5,
-            delay_s=3,
+            attempts=3,
+            delay_s=2,
         )
 
-        if not value_6972:
+        if value_6972 and self._looks_like_6972_value(value_6972):
+            print("BATTERY CONTROL CID 6972 direct read OK", flush=True)
+            self.set_current_6972_value(value_6972)
+            self.validation_done = True
+            self.print_validation_summary(value_6972)
+            return True
+
+        print(
+            "BATTERY CONTROL CID 6972 direct read unavailable, trying unit CID fallback",
+            flush=True,
+        )
+
+        fallback_value = self.read_6972_value_from_unit_cids()
+
+        if not fallback_value:
             print(
-                "BATTERY CONTROL validation failed: unable to read CID 6972",
+                "BATTERY CONTROL validation failed: unable to rebuild CID 6972 from unit CIDs",
                 flush=True,
             )
             self.validation_done = False
             return False
 
-        if not self._looks_like_6972_value(value_6972):
+        if not self._looks_like_6972_value(fallback_value):
             print(
-                "BATTERY CONTROL validation failed: CID 6972 value is not valid",
+                "BATTERY CONTROL validation failed: rebuilt CID 6972 value is invalid",
                 flush=True,
             )
             self.validation_done = False
             return False
 
-        self.set_current_6972_value(value_6972)
+        self.set_current_6972_value(fallback_value)
+        self.validation_done = True
 
+        print(
+            "BATTERY CONTROL validation OK: CID 6972 rebuilt from unit CIDs",
+            flush=True,
+        )
+
+        self.print_validation_summary(fallback_value)
+
+        return True
+
+    def print_validation_summary(self, value_6972):
         groups = self.split_6972_groups(value_6972)
+        inhibit_value = self.build_inhibit_6972_value(value_6972)
 
         print(
             f"BATTERY CONTROL CID 6972 groups detected: {len(groups)}",
             flush=True,
         )
 
-        inhibit_value = self.build_inhibit_6972_value(value_6972)
+        print("BATTERY CONTROL 6972 current groups:", flush=True)
 
-        if not inhibit_value:
+        for index, group in enumerate(groups):
+            kind = "charge" if index < 6 else "discharge"
             print(
-                "BATTERY CONTROL validation failed: cannot build inhibit value",
+                f"BATTERY CONTROL group {index + 1:02d} {kind}: switch={group[0]} time={group[1]} current={group[2]} soc={group[3]} volt={group[4]}",
                 flush=True,
             )
-            self.validation_done = False
-            return False
 
-        print("BATTERY CONTROL validation OK: CID 6972 backup available", flush=True)
-        print(f"BATTERY CONTROL current 6972 yuanzhi: {value_6972}", flush=True)
+        print(f"BATTERY CONTROL current yuanzhi: {value_6972}", flush=True)
         print(f"BATTERY CONTROL dry-run inhibit value: {inhibit_value}", flush=True)
 
-        self.validation_done = True
+    def read_slot_value(self, cid, name, required=True):
+        value = self.read_cid(cid, attempts=2, delay_s=1)
 
-        return True
+        if value is None:
+            if required:
+                print(
+                    f"BATTERY CONTROL unit CID missing: {name} cid={cid}",
+                    flush=True,
+                )
+            return None
+
+        return value
+
+    def read_6972_value_from_unit_cids(self):
+        print("BATTERY CONTROL fallback unit CID read started", flush=True)
+
+        groups = []
+
+        for idx in range(6):
+            switch_value = self.read_slot_value(
+                self.charge_switch_cids[idx],
+                f"charge switch {idx + 1}",
+            )
+            time_slot = self.read_slot_value(
+                self.charge_time_cids[idx],
+                f"charge time {idx + 1}",
+            )
+            current = self.read_slot_value(
+                self.charge_current_cids[idx],
+                f"charge current {idx + 1}",
+            )
+            soc = self.read_slot_value(
+                self.charge_soc_cids[idx],
+                f"charge soc {idx + 1}",
+            )
+            voltage = self.read_slot_value(
+                self.charge_voltage_cids[idx],
+                f"charge voltage {idx + 1}",
+            )
+
+            if None in [switch_value, time_slot, current, soc, voltage]:
+                print(
+                    f"BATTERY CONTROL fallback failed on charge group {idx + 1}",
+                    flush=True,
+                )
+                return None
+
+            groups.append([
+                self._normalize_switch(switch_value),
+                self._normalize_time_slot(time_slot),
+                self._normalize_numeric(current, "0"),
+                self._normalize_numeric(soc, "20"),
+                self._normalize_numeric(voltage, "48"),
+            ])
+
+        for idx in range(6):
+            switch_value = self.read_slot_value(
+                self.discharge_switch_cids[idx],
+                f"discharge switch {idx + 1}",
+            )
+            time_slot = self.read_slot_value(
+                self.discharge_time_cids[idx],
+                f"discharge time {idx + 1}",
+            )
+            current = self.read_slot_value(
+                self.discharge_current_cids[idx],
+                f"discharge current {idx + 1}",
+            )
+            soc = self.read_slot_value(
+                self.discharge_soc_cids[idx],
+                f"discharge soc {idx + 1}",
+            )
+            voltage = self.read_slot_value(
+                self.discharge_voltage_cids[idx],
+                f"discharge voltage {idx + 1}",
+            )
+
+            if None in [switch_value, time_slot, current, soc, voltage]:
+                print(
+                    f"BATTERY CONTROL fallback failed on discharge group {idx + 1}",
+                    flush=True,
+                )
+                return None
+
+            groups.append([
+                self._normalize_switch(switch_value),
+                self._normalize_time_slot(time_slot),
+                self._normalize_numeric(current, "0"),
+                self._normalize_numeric(soc, "20"),
+                self._normalize_numeric(voltage, "48"),
+            ])
+
+        if len(groups) != 12:
+            print(
+                f"BATTERY CONTROL fallback invalid group count: {len(groups)}",
+                flush=True,
+            )
+            return None
+
+        rebuilt_value = self.join_6972_groups(groups)
+
+        print(
+            f"BATTERY CONTROL fallback rebuilt 6972 value: {rebuilt_value}",
+            flush=True,
+        )
+
+        return rebuilt_value
 
     def set_current_6972_value(self, value):
         if not value:
@@ -505,10 +713,6 @@ class BatteryControl:
         for index, group in enumerate(groups):
             new_group = list(group)
 
-            # Manufacturer format:
-            # groups 1 to 6 = charge slots
-            # groups 7 to 12 = discharge slots
-            # each group = switch, time slot, current, SOC, voltage.
             if index >= 6:
                 new_group[0] = "0"
                 new_group[1] = "00:00-00:00"

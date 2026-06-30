@@ -127,6 +127,8 @@ HISTORY_DAYS=14
 
 SOLIS_CONTROL_DRY_RUN=true
 SOLIS_CONTROL_LANGUAGE=2
+SOLIS_CONTROL_AUTO_VALIDATE=false
+SOLIS_CONTROL_READ_SPACING_S=1.5
 ENVEOF
 
 # Preserve optional inverter ID if it existed
@@ -147,6 +149,8 @@ fi
 echo ".env created"
 echo "Polling interval set to 10 seconds"
 echo "Solis battery control dry-run enabled"
+echo "Solis battery control auto-validation disabled at startup"
+echo "Solis control read spacing set to 1.5 seconds"
 echo ""
 
 # ----------------------------
@@ -198,3 +202,4 @@ echo ""
 echo "Home Assistant:"
 echo "  http://$IP:8123"
 echo ""
+``

@@ -130,6 +130,7 @@ SOLIS_CONTROL_LANGUAGE=2
 SOLIS_CONTROL_AUTO_VALIDATE=false
 SOLIS_CONTROL_READ_SPACING_S=2.5
 SOLIS_CONTROL_ALLOW_REAL_WRITE=false
+SOLIS_CONTROL_ENABLE_MODE_PLAN=false
 ENVEOF
 
 # Preserve optional inverter ID if it existed
@@ -151,6 +152,7 @@ echo ".env created"
 echo "Polling interval set to 10 seconds"
 echo "Solis battery control dry-run enabled"
 echo "Solis battery control real write disabled"
+echo "Solis battery control mode plan disabled"
 echo "Solis battery control auto-validation disabled at startup"
 echo "Solis control read spacing set to 2.5 seconds"
 echo ""

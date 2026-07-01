@@ -1,9 +1,47 @@
 import json
+import math
 import os
 from datetime import datetime, timedelta
 
 from tempo import Tempo
 from weather import Weather
+
+
+# -----------------------------------------------------------------------------
+# Fixed PV installation model for this SOLID EMS installation.
+# Convention azimuth_deg:
+#   0   = south
+#   +35 = south-south-west / west of south
+#   -35 = south-south-east / east of south
+# -----------------------------------------------------------------------------
+PV_SITE = {
+    "latitude": 50.28,
+    "longitude": 2.80,
+}
+
+PV_ARRAYS = {
+    "pv1": {
+        "label": "PV1 sud-sud-ouest",
+        "kwp": 5.15,
+        "panels": 10,
+        "panel_wp": 515,
+        "azimuth_deg": 35.0,
+        "tilt_deg": 30.0,
+    },
+    "pv2": {
+        "label": "PV2 sud",
+        "kwp": 4.41,
+        "panels": 9,
+        "panel_wp": 490,
+        "azimuth_deg": 0.0,
+        "tilt_deg": 30.0,
+    },
+}
+
+PV_TOTAL_KWP = PV_ARRAYS["pv1"]["kwp"] + PV_ARRAYS["pv2"]["kwp"]
+PV_TEMP_COEFF_PCT_PER_C = -0.40
+PV_REF_TEMP_C = 25.0
+PV_MODEL_DERATE = 0.88
 
 
 class AiEngine:
@@ -13,6 +51,17 @@ class AiEngine:
         self.history_file = os.getenv("HISTORY_FILE", "/data/solid_ems_history.json")
         self.battery_capacity_kwh = float(os.getenv("BATTERY_CAPACITY_KWH", "30"))
         self.history_days = int(os.getenv("HISTORY_DAYS", "14"))
+
+        # AI thresholds. Kept internal to avoid touching .env / HA / discovery.
+        self.flexible_load_min_surplus_kw = 1.5
+        self.flexible_load_min_duration_h = 2
+        self.red_day_target_soc = 90.0
+        self.white_day_target_soc = 70.0
+        self.low_soc_threshold = 25.0
+        self.high_soc_threshold = 85.0
+        self.pv_expected_min_kw_for_alarm = 1.0
+        self.pv_perf_warning_pct = 65.0
+        self.pv_perf_watch_pct = 78.0
 
     def _to_float(self, value, default=0.0):
         try:
@@ -27,6 +76,9 @@ class AiEngine:
             return round(float(value), digits)
         except (TypeError, ValueError):
             return 0.0
+
+    def _clamp(self, value, minimum, maximum):
+        return max(minimum, min(maximum, value))
 
     def _load_history(self):
         try:
@@ -55,7 +107,7 @@ class AiEngine:
                 except Exception:
                     continue
             with open(self.history_file, "w", encoding="utf-8") as file:
-                json.dump(cleaned, file)
+                json.dump(cleaned, file, ensure_ascii=False)
         except Exception as error:
             print("AI history save error:", error, flush=True)
 
@@ -66,6 +118,7 @@ class AiEngine:
             "timestamp": now.isoformat(timespec="seconds"),
             "hour": now.hour,
             "weekday": now.weekday(),
+            "day_of_year": now.timetuple().tm_yday,
             "pv_power": self._to_float(data.get("pv_power")),
             "pv1_power": self._to_float(data.get("pv1_power")),
             "pv2_power": self._to_float(data.get("pv2_power")),
@@ -78,16 +131,29 @@ class AiEngine:
         history.append(sample)
         self._save_history(history)
 
-    def _average_for_hour(self, key, target_hour, min_value=0.0):
+    def _history_values_for_hour(self, key, target_hour, min_value=0.0):
         history = self._load_history()
-        values = [self._to_float(item.get(key)) for item in history if item.get("hour") == target_hour]
-        values = [value for value in values if value > min_value]
+        values = [
+            self._to_float(item.get(key))
+            for item in history
+            if item.get("hour") == target_hour
+        ]
+        return [value for value in values if value > min_value]
+
+    def _average_for_hour(self, key, target_hour, min_value=0.0):
+        values = self._history_values_for_hour(key, target_hour, min_value)
         if not values:
             return 0.0
         return sum(values) / len(values)
 
     def _average_load_for_hour(self, target_hour):
         return self._average_for_hour("load_power", target_hour, 0.0)
+
+    def _average_pv_for_hour(self, target_hour):
+        return self._average_for_hour("pv_power", target_hour, 0.0)
+
+    def _average_string_for_hour(self, string_key, target_hour):
+        return self._average_for_hour(string_key, target_hour, 0.2)
 
     def _average_load_next_hours(self, hours=6):
         now = datetime.now()
@@ -101,69 +167,311 @@ class AiEngine:
             return 0.0
         return sum(values) / len(values)
 
-    def _average_string_for_hour(self, string_key, target_hour):
-        return self._average_for_hour(string_key, target_hour, 0.2)
+    def _average_energy_next_hours(self, key, hours=6):
+        now = datetime.now()
+        total = 0.0
+        count = 0
+        for index in range(hours):
+            target_hour = (now.hour + index) % 24
+            if key == "load_power":
+                value = self._average_load_for_hour(target_hour)
+            else:
+                value = self._average_pv_for_hour(target_hour)
+            if value > 0:
+                total += value
+                count += 1
+        return total if count else 0.0
 
-    def _analyze_pv_strings(self, pv1_power, pv2_power, pv_total_dc_power, pv_power):
+    # -------------------------------------------------------------------------
+    # Weather and local solar model
+    # -------------------------------------------------------------------------
+    def _get_weather_context(self):
+        try:
+            weather = self.weather.get_forecast()
+            if not isinstance(weather, dict):
+                weather = {}
+        except Exception as error:
+            print("AI weather error:", error, flush=True)
+            weather = {}
+
+        radiation = self._to_float(weather.get("radiation"), 0.0)
+        cloud = self._to_float(weather.get("cloud"), 100.0)
+        temperature = self._to_float(weather.get("temperature"), 0.0)
+        rain = self._to_float(weather.get("rain"), 0.0)
+
+        cloud_factor = self._clamp(1.0 - cloud / 100.0, 0.05, 1.0)
+        radiation_factor = self._clamp(radiation / 800.0, 0.05, 1.25) if radiation > 0 else cloud_factor
+        weather_factor = self._clamp((cloud_factor * 0.55) + (radiation_factor * 0.45), 0.05, 1.20)
+
+        if cloud <= 25 and radiation >= 450:
+            label = "beau temps"
+        elif cloud <= 55 and radiation >= 250:
+            label = "production correcte"
+        elif cloud >= 80 or radiation < 120:
+            label = "faible production probable"
+        else:
+            label = "production incertaine"
+
+        return {
+            "raw": weather,
+            "radiation": radiation,
+            "cloud": cloud,
+            "temperature": temperature,
+            "rain": rain,
+            "factor": weather_factor,
+            "label": label,
+        }
+
+    def _timezone_offset_hours(self, now):
+        try:
+            offset = now.astimezone().utcoffset()
+            if offset is None:
+                return 1.0
+            return offset.total_seconds() / 3600.0
+        except Exception:
+            return 1.0
+
+    def _solar_position(self, now=None):
+        now = now or datetime.now()
+        lat = math.radians(PV_SITE["latitude"])
+        day = now.timetuple().tm_yday
+        hour_decimal = now.hour + now.minute / 60.0 + now.second / 3600.0
+
+        # Approximate solar declination and equation of time.
+        gamma = 2.0 * math.pi * (day - 1 + (hour_decimal - 12.0) / 24.0) / 365.0
+        decl = (
+            0.006918
+            - 0.399912 * math.cos(gamma)
+            + 0.070257 * math.sin(gamma)
+            - 0.006758 * math.cos(2 * gamma)
+            + 0.000907 * math.sin(2 * gamma)
+            - 0.002697 * math.cos(3 * gamma)
+            + 0.001480 * math.sin(3 * gamma)
+        )
+        eq_time_min = 229.18 * (
+            0.000075
+            + 0.001868 * math.cos(gamma)
+            - 0.032077 * math.sin(gamma)
+            - 0.014615 * math.cos(2 * gamma)
+            - 0.040849 * math.sin(2 * gamma)
+        )
+
+        tz = self._timezone_offset_hours(now)
+        time_offset_min = eq_time_min + 4.0 * PV_SITE["longitude"] - 60.0 * tz
+        true_solar_time_h = (hour_decimal * 60.0 + time_offset_min) / 60.0
+        hour_angle_deg = 15.0 * (true_solar_time_h - 12.0)
+        hour_angle = math.radians(hour_angle_deg)
+
+        sin_elev = math.sin(lat) * math.sin(decl) + math.cos(lat) * math.cos(decl) * math.cos(hour_angle)
+        sin_elev = self._clamp(sin_elev, -1.0, 1.0)
+        elevation = math.asin(sin_elev)
+        elevation_deg = math.degrees(elevation)
+
+        # South-relative sun azimuth approximation: negative morning/east, positive afternoon/west.
+        south_relative_azimuth_deg = hour_angle_deg
+        daylight_factor = max(0.0, math.sin(elevation))
+
+        return {
+            "day_of_year": day,
+            "hour_decimal": hour_decimal,
+            "solar_time_h": true_solar_time_h,
+            "hour_angle_deg": hour_angle_deg,
+            "elevation_deg": elevation_deg,
+            "south_relative_azimuth_deg": south_relative_azimuth_deg,
+            "daylight_factor": daylight_factor,
+        }
+
+    def _season_factor(self, solar_position):
+        # Normalized seasonal potential from solar elevation. Kept conservative because
+        # cloud/radiation and local history already correct the estimate.
+        elevation = solar_position.get("elevation_deg", 0.0)
+        if elevation <= 0:
+            return 0.0
+        return self._clamp(math.sin(math.radians(elevation)) / math.sin(math.radians(62.0)), 0.05, 1.10)
+
+    def _temperature_factor(self, temperature_c):
+        if temperature_c <= 0:
+            return 1.0
+        delta = temperature_c - PV_REF_TEMP_C
+        factor = 1.0 + (PV_TEMP_COEFF_PCT_PER_C / 100.0) * delta
+        return self._clamp(factor, 0.75, 1.08)
+
+    def _array_orientation_factor(self, array_meta, solar_position):
+        elevation_deg = solar_position.get("elevation_deg", 0.0)
+        if elevation_deg <= 0:
+            return 0.0
+
+        tilt_deg = array_meta["tilt_deg"]
+        panel_azimuth_deg = array_meta["azimuth_deg"]
+        sun_south_azimuth_deg = solar_position.get("south_relative_azimuth_deg", 0.0)
+
+        # South-relative azimuth alignment. PV1 SSO is naturally favoured after solar noon.
+        azimuth_delta = math.radians(sun_south_azimuth_deg - panel_azimuth_deg)
+        azimuth_factor = max(0.0, math.cos(azimuth_delta))
+
+        # Simple tilt factor: best when panel tilt roughly sees the current solar elevation.
+        incidence_delta = abs((90.0 - elevation_deg) - tilt_deg)
+        tilt_factor = self._clamp(math.cos(math.radians(incidence_delta)), 0.25, 1.0)
+
+        elevation_factor = max(0.0, math.sin(math.radians(elevation_deg)))
+        return self._clamp(elevation_factor * azimuth_factor * (0.65 + 0.35 * tilt_factor), 0.0, 1.0)
+
+    def _expected_array_power(self, array_key, weather_context, solar_position):
+        meta = PV_ARRAYS[array_key]
+        orientation_factor = self._array_orientation_factor(meta, solar_position)
+        season_factor = self._season_factor(solar_position)
+        weather_factor = self._to_float(weather_context.get("factor"), 0.5)
+        temp_factor = self._temperature_factor(self._to_float(weather_context.get("temperature"), 0.0))
+
+        expected = meta["kwp"] * orientation_factor * season_factor * weather_factor * temp_factor * PV_MODEL_DERATE
+        return self._safe_round(max(0.0, expected), 2)
+
+    def _expected_pv_performance(self, pv1_power, pv2_power, pv_power, weather_context):
+        solar_position = self._solar_position()
+        pv1_expected_physics = self._expected_array_power("pv1", weather_context, solar_position)
+        pv2_expected_physics = self._expected_array_power("pv2", weather_context, solar_position)
+
+        now_hour = datetime.now().hour
+        pv1_history = self._average_string_for_hour("pv1_power", now_hour)
+        pv2_history = self._average_string_for_hour("pv2_power", now_hour)
+        weather_factor = self._to_float(weather_context.get("factor"), 0.5)
+
+        # Blend physics and local historical behaviour. History is useful for local shade,
+        # inverter behaviour and real site specifics; physics catches seasonal/day effects.
+        if pv1_history > 0:
+            pv1_expected = 0.65 * pv1_expected_physics + 0.35 * (pv1_history * weather_factor)
+        else:
+            pv1_expected = pv1_expected_physics
+
+        if pv2_history > 0:
+            pv2_expected = 0.65 * pv2_expected_physics + 0.35 * (pv2_history * weather_factor)
+        else:
+            pv2_expected = pv2_expected_physics
+
+        pv_expected = pv1_expected + pv2_expected
+        actual_total = max(self._to_float(pv_power), self._to_float(pv1_power) + self._to_float(pv2_power))
+
+        def ratio(actual, expected):
+            if expected < 0.2:
+                return 0.0
+            return self._safe_round(actual / expected * 100.0, 1)
+
+        return {
+            "solar_position": solar_position,
+            "pv1_expected_kw": self._safe_round(pv1_expected, 2),
+            "pv2_expected_kw": self._safe_round(pv2_expected, 2),
+            "pv_expected_kw": self._safe_round(pv_expected, 2),
+            "pv1_performance_ratio_pct": ratio(pv1_power, pv1_expected),
+            "pv2_performance_ratio_pct": ratio(pv2_power, pv2_expected),
+            "pv_performance_ratio_pct": ratio(actual_total, pv_expected),
+        }
+
+    # -------------------------------------------------------------------------
+    # PV diagnostics and energy advice
+    # -------------------------------------------------------------------------
+    def _analyze_pv_strings(self, pv1_power, pv2_power, pv_total_dc_power, pv_power, weather_context=None):
+        weather_context = weather_context or self._get_weather_context()
         pv1 = self._to_float(pv1_power)
         pv2 = self._to_float(pv2_power)
         pv_dc = self._to_float(pv_total_dc_power)
         pv_ac = self._to_float(pv_power)
         now_hour = datetime.now().hour
         status = "OK"
-        alert = "Strings PV conformes a leur comportement habituel"
+        alert = "Production PV conforme au modele attendu"
         max_deviation_pct = 0.0
         priority = 0
 
-        if pv_dc < 0.8 and pv_ac < 0.8:
+        perf = self._expected_pv_performance(pv1, pv2, max(pv_ac, pv_dc), weather_context)
+        expected_total = perf.get("pv_expected_kw", 0.0)
+        perf_ratio = perf.get("pv_performance_ratio_pct", 0.0)
+        pv1_ratio = perf.get("pv1_performance_ratio_pct", 0.0)
+        pv2_ratio = perf.get("pv2_performance_ratio_pct", 0.0)
+        solar = perf.get("solar_position", {})
+        elevation = solar.get("elevation_deg", 0.0)
+        sun_az = solar.get("south_relative_azimuth_deg", 0.0)
+
+        instantaneous_den = pv1 + pv2
+        if instantaneous_den > 0:
+            instantaneous_imbalance = abs(pv1 - pv2) / instantaneous_den * 100
+            max_deviation_pct = max(max_deviation_pct, instantaneous_imbalance)
+
+        if pv_dc < 0.8 and pv_ac < 0.8 and expected_total < 1.0:
             return {
                 "pv_string_status": "LOW_LIGHT",
                 "pv_string_alert": "Production trop faible pour diagnostiquer les strings",
-                "pv_string_imbalance_pct": 0.0,
+                "pv_string_imbalance_pct": self._safe_round(max_deviation_pct, 1),
                 "pv_string_priority": 0,
+                "pv_expected_kw": self._safe_round(expected_total, 2),
+                "pv_performance_ratio_pct": self._safe_round(perf_ratio, 1),
+                "pv1_expected_kw": perf.get("pv1_expected_kw", 0.0),
+                "pv2_expected_kw": perf.get("pv2_expected_kw", 0.0),
             }
+
+        # Performance against local physics + weather + season model.
+        if expected_total >= self.pv_expected_min_kw_for_alarm:
+            if perf_ratio > 0 and perf_ratio < self.pv_perf_warning_pct:
+                status = "WARNING"
+                alert = (
+                    f"Production PV sous l'attendu : {perf_ratio} % du modele "
+                    f"({self._safe_round(max(pv_ac, pv_dc), 2)} kW reels vs {expected_total} kW attendus). "
+                    f"Verifier meteo locale, ombrage, encrassement ou limitation onduleur."
+                )
+                priority = max(priority, 5)
+            elif perf_ratio > 0 and perf_ratio < self.pv_perf_watch_pct:
+                status = "WATCH"
+                alert = (
+                    f"Production PV legerement sous l'attendu : {perf_ratio} % du modele "
+                    f"({self._safe_round(max(pv_ac, pv_dc), 2)} kW reels vs {expected_total} kW attendus)."
+                )
+                priority = max(priority, 3)
 
         pv1_reference = self._average_string_for_hour("pv1_power", now_hour)
         pv2_reference = self._average_string_for_hour("pv2_power", now_hour)
 
-        if pv1_reference <= 0 or pv2_reference <= 0:
-            return {
-                "pv_string_status": "LEARNING",
-                "pv_string_alert": "Apprentissage en cours : historique strings PV insuffisant",
-                "pv_string_imbalance_pct": 0.0,
-                "pv_string_priority": 0,
-            }
+        if pv1_reference > 0 and pv2_reference > 0:
+            pv1_hist_ratio = pv1 / pv1_reference if pv1_reference > 0 else 1
+            pv2_hist_ratio = pv2 / pv2_reference if pv2_reference > 0 else 1
+            pv1_drop_pct = max(0, (1 - pv1_hist_ratio) * 100)
+            pv2_drop_pct = max(0, (1 - pv2_hist_ratio) * 100)
+            max_deviation_pct = max(max_deviation_pct, pv1_drop_pct, pv2_drop_pct)
 
-        pv1_ratio = pv1 / pv1_reference if pv1_reference > 0 else 1
-        pv2_ratio = pv2 / pv2_reference if pv2_reference > 0 else 1
-        pv1_drop_pct = max(0, (1 - pv1_ratio) * 100)
-        pv2_drop_pct = max(0, (1 - pv2_ratio) * 100)
-        max_deviation_pct = max(pv1_drop_pct, pv2_drop_pct)
+            if pv1_reference > 1.0 and pv1 < 0.15:
+                status = "CRITICAL"
+                alert = "Possible defaut String PV1 : production quasi nulle par rapport a son historique"
+                priority = 6
+            elif pv2_reference > 1.0 and pv2 < 0.15:
+                status = "CRITICAL"
+                alert = "Possible defaut String PV2 : production quasi nulle par rapport a son historique"
+                priority = 6
+            elif pv1_drop_pct >= 45 and pv1_reference > 0.8:
+                status = "WARNING"
+                alert = "PV1 nettement sous son niveau habituel : verifier ombrage, connectique ou panneau"
+                priority = max(priority, 5)
+            elif pv2_drop_pct >= 45 and pv2_reference > 0.8:
+                status = "WARNING"
+                alert = "PV2 nettement sous son niveau habituel : verifier ombrage, connectique ou panneau"
+                priority = max(priority, 5)
 
-        if pv1_reference > 1.0 and pv1 < 0.15:
-            status = "CRITICAL"
-            alert = "Possible defaut String PV 1 : production quasi nulle par rapport a son historique"
-            priority = 6
-        elif pv2_reference > 1.0 and pv2 < 0.15:
-            status = "CRITICAL"
-            alert = "Possible defaut String PV 2 : production quasi nulle par rapport a son historique"
-            priority = 6
-        elif pv1_drop_pct >= 45 and pv1_reference > 0.8:
+        # Expected string comparison with orientation awareness.
+        if perf.get("pv1_expected_kw", 0.0) >= 0.5 and pv1_ratio > 0 and pv1_ratio < 60:
             status = "WARNING"
-            alert = "String PV 1 nettement sous son niveau habituel : verifier ombrage, connectique ou panneau"
-            priority = 5
-        elif pv2_drop_pct >= 45 and pv2_reference > 0.8:
+            alert = f"PV1 sous l'attendu pour son orientation SSO : {pv1_ratio} % du modele. Verifier ombrage ou connectique PV1."
+            priority = max(priority, 5)
+        if perf.get("pv2_expected_kw", 0.0) >= 0.5 and pv2_ratio > 0 and pv2_ratio < 60:
             status = "WARNING"
-            alert = "String PV 2 nettement sous son niveau habituel : verifier ombrage, connectique ou panneau"
-            priority = 5
-        elif pv1_drop_pct >= 30 and pv1_reference > 0.8:
-            status = "WATCH"
-            alert = "String PV 1 sous son niveau habituel : tendance a surveiller"
-            priority = 3
-        elif pv2_drop_pct >= 30 and pv2_reference > 0.8:
-            status = "WATCH"
-            alert = "String PV 2 sous son niveau habituel : tendance a surveiller"
-            priority = 3
+            alert = f"PV2 sous l'attendu pour son orientation sud : {pv2_ratio} % du modele. Verifier ombrage ou connectique PV2."
+            priority = max(priority, 5)
+
+        # Contextual normal orientation notes.
+        if status == "OK" and pv1 > 0 and pv2 > 0:
+            if sun_az < -20 and pv1 < pv2:
+                alert = "PV1 inferieur a PV2 ce matin : coherent avec orientation sud-sud-ouest. Production globale conforme."
+            elif sun_az > 20 and pv1 >= pv2:
+                alert = "PV1 reprend l'avantage l'apres-midi : comportement coherent avec orientation sud-sud-ouest."
+            elif perf_ratio >= 90:
+                alert = f"Production PV conforme au modele saison/meteo : {perf_ratio} % de l'attendu."
+            else:
+                alert = "Strings PV conformes a leur comportement attendu."
 
         if pv_dc > 1.0 and pv_ac > 0:
             ac_dc_ratio = pv_ac / pv_dc
@@ -178,21 +486,46 @@ class AiEngine:
             "pv_string_alert": alert,
             "pv_string_imbalance_pct": self._safe_round(max_deviation_pct, 1),
             "pv_string_priority": priority,
+            "pv_expected_kw": self._safe_round(expected_total, 2),
+            "pv_performance_ratio_pct": self._safe_round(perf_ratio, 1),
+            "pv1_expected_kw": perf.get("pv1_expected_kw", 0.0),
+            "pv2_expected_kw": perf.get("pv2_expected_kw", 0.0),
+            "pv1_performance_ratio_pct": self._safe_round(pv1_ratio, 1),
+            "pv2_performance_ratio_pct": self._safe_round(pv2_ratio, 1),
+            "solar_elevation_deg": self._safe_round(elevation, 1),
+            "solar_array_azimuth_deg": self._safe_round(sun_az, 1),
         }
 
-    def _estimate_pv_forecast(self, current_pv):
-        try:
-            weather = self.weather.get_forecast()
-        except Exception as error:
-            print("AI weather error:", error, flush=True)
-            weather = {}
-        radiation = self._to_float(weather.get("radiation"))
-        cloud = self._to_float(weather.get("cloud"), 100)
-        pv_forecast = radiation * (1 - cloud / 100)
-        pv_estimated_kw = pv_forecast / 200
-        if current_pv > pv_estimated_kw:
-            pv_estimated_kw = current_pv
+    def _estimate_pv_forecast(self, current_pv, weather_context=None):
+        weather_context = weather_context or self._get_weather_context()
+        now_hour = datetime.now().hour
+        historical_now = self._average_pv_for_hour(now_hour)
+        weather_factor = self._to_float(weather_context.get("factor"), 0.5)
+        physics_perf = self._expected_pv_performance(0, 0, current_pv, weather_context)
+        physics_estimate = physics_perf.get("pv_expected_kw", 0.0)
+        history_estimate = historical_now * weather_factor if historical_now > 0 else 0.0
+        pv_estimated_kw = max(current_pv, physics_estimate, history_estimate)
         return self._safe_round(max(0, pv_estimated_kw), 1)
+
+    def _predict_pv_energy_next_hours(self, current_pv, hours, weather_context):
+        now = datetime.now()
+        weather_factor = self._to_float(weather_context.get("factor"), 0.5)
+        total = 0.0
+        used_history = False
+
+        for index in range(hours):
+            target_hour = (now.hour + index) % 24
+            historical = self._average_pv_for_hour(target_hour)
+            if historical > 0:
+                total += historical * weather_factor
+                used_history = True
+            else:
+                decay = max(0.35, 1.0 - 0.08 * index)
+                total += max(current_pv, 0.0) * weather_factor * decay
+
+        if not used_history and current_pv <= 0:
+            return 0.0
+        return self._safe_round(total, 2)
 
     def _estimate_autonomy_hours(self, battery_soc, load_power):
         if battery_soc <= 0 or load_power <= 0:
@@ -223,74 +556,105 @@ class AiEngine:
         return "Autoconsommation stable"
 
     def _build_advice(self, tempo_today, tempo_tomorrow, battery_soc, pv_power, load_power, grid_power,
-                      pv_forecast_kw, habit_load_next_6h, estimated_autonomy_h, estimated_full_h,
-                      pv_string_analysis):
+                      pv_forecast_kw, habit_load_now, habit_load_next_6h, predicted_pv_next_6h_kwh,
+                      predicted_load_next_6h_kwh, estimated_autonomy_h, estimated_full_h,
+                      pv_string_analysis, weather_context):
         advice = []
         priority = 0
         pv_string_priority = pv_string_analysis.get("pv_string_priority", 0)
         pv_string_status = pv_string_analysis.get("pv_string_status", "OK")
         pv_string_alert = pv_string_analysis.get("pv_string_alert", "")
+        weather_label = weather_context.get("label", "meteo inconnue")
+        predicted_surplus_6h = predicted_pv_next_6h_kwh - predicted_load_next_6h_kwh
+        current_surplus = max(0.0, pv_power - load_power)
+        next_hours_good_for_load = (
+            predicted_surplus_6h >= self.flexible_load_min_surplus_kw * self.flexible_load_min_duration_h
+            or (current_surplus >= self.flexible_load_min_surplus_kw and pv_forecast_kw > habit_load_next_6h)
+        )
 
         if pv_string_status in ["CRITICAL", "WARNING"]:
             advice.append(pv_string_alert)
             priority = max(priority, pv_string_priority)
+        elif pv_string_status == "WATCH":
+            advice.append(pv_string_alert)
+            priority = max(priority, 3)
 
         if tempo_tomorrow == 3:
-            advice.append("Demain sera rouge : charger au maximum la batterie aujourd'hui et decaler les usages importants.")
-            priority = max(priority, 6)
-            if battery_soc < 85:
-                advice.append("Objectif recommande : viser au moins 85 % de batterie avant demain matin.")
+            advice.append("Demain sera rouge : viser une batterie haute ce soir et activer Veille HC la nuit pour eviter de vider la batterie en heures creuses.")
+            priority = max(priority, 7)
+            if battery_soc < self.red_day_target_soc:
+                advice.append(f"Objectif recommande avant demain matin : atteindre environ {int(self.red_day_target_soc)} % de batterie.")
+                priority = max(priority, 7)
+            if next_hours_good_for_load and tempo_today != 3:
+                advice.append("Fenetre solaire favorable avant jour rouge : lancer maintenant ballon, lave-linge, lave-vaisselle ou recharge pilotable plutot que demain.")
                 priority = max(priority, 6)
         elif tempo_tomorrow == 2:
-            advice.append("Demain sera blanc : conserver une marge batterie et eviter les usages lourds demain en heures pleines.")
-            priority = max(priority, 3)
+            advice.append("Demain sera blanc : conserver une marge batterie et avancer les usages flexibles si le solaire est disponible aujourd'hui.")
+            priority = max(priority, 4)
+            if battery_soc < self.white_day_target_soc:
+                advice.append(f"Objectif prudent : garder au moins {int(self.white_day_target_soc)} % de batterie avant demain matin.")
+                priority = max(priority, 4)
 
         if tempo_today == 3:
-            advice.append("Aujourd'hui est rouge : limiter les gros consommateurs et privilegier la batterie.")
-            priority = max(priority, 6)
+            advice.append("Aujourd'hui est rouge : limiter les gros consommateurs, conserver la batterie pour les heures pleines et eviter l'import reseau.")
+            priority = max(priority, 7)
             if grid_power > 0.1:
-                advice.append("Import reseau detecte en jour rouge : reduire immediatement les charges non critiques.")
-                priority = max(priority, 7)
+                advice.append("Import reseau detecte en jour rouge : couper ou reporter immediatement les charges non critiques.")
+                priority = max(priority, 8)
         elif tempo_today == 2:
-            advice.append("Tempo blanc aujourd'hui : eviter les usages lourds en heures pleines si possible.")
+            advice.append("Tempo blanc aujourd'hui : privilegier les usages energivores pendant les periodes de surplus solaire.")
             priority = max(priority, 3)
         elif tempo_today == 1:
-            if pv_power > load_power and battery_soc > 60:
-                advice.append("Tempo bleu et surplus solaire : bon moment pour lancer les appareils energivores.")
-                priority = max(priority, 3)
+            if next_hours_good_for_load and battery_soc >= 50:
+                advice.append(f"Tempo bleu et {weather_label} : surplus probable sur 6 h, bon moment pour lancer les appareils energivores pilotables.")
+                priority = max(priority, 4)
             else:
-                advice.append("Tempo bleu : jour favorable, surveiller le surplus solaire et la batterie.")
+                advice.append("Tempo bleu : jour favorable, surveiller le surplus solaire et charger la batterie sans contrainte forte.")
                 priority = max(priority, 2)
 
-        if battery_soc < 20:
-            advice.append("Batterie faible : limiter la consommation jusqu'au retour d'une production suffisante.")
+        if battery_soc < self.low_soc_threshold:
+            advice.append("Batterie faible : limiter la consommation non critique jusqu'au retour d'une production suffisante.")
             priority = max(priority, 6)
         elif battery_soc < 35 and tempo_tomorrow == 3:
-            advice.append("Batterie trop basse avant un jour rouge : eviter toute decharge inutile.")
-            priority = max(priority, 6)
+            advice.append("Batterie trop basse avant un jour rouge : eviter toute decharge inutile et preparer la Veille HC.")
+            priority = max(priority, 7)
 
         if pv_power > load_power and battery_soc < 95:
-            advice.append("Production PV superieure a la maison : laisser charger la batterie.")
+            advice.append("Production PV superieure a la maison : laisser charger la batterie en priorite.")
             priority = max(priority, 3)
         if pv_power > load_power and battery_soc >= 95:
-            advice.append("Batterie presque pleine et surplus solaire : lancer les usages flexibles maintenant.")
+            advice.append("Batterie presque pleine et surplus solaire : lancer les usages flexibles maintenant pour maximiser l'autoconsommation.")
             priority = max(priority, 4)
-        if habit_load_next_6h > load_power * 1.25 and battery_soc < 50:
-            advice.append("La consommation habituelle des prochaines heures est elevee : conserver la batterie.")
+
+        if next_hours_good_for_load and tempo_today != 3 and battery_soc >= 60:
+            advice.append(f"Prediction 6 h : PV estime {predicted_pv_next_6h_kwh} kWh vs conso habituelle {predicted_load_next_6h_kwh} kWh, usages energivores recommandes.")
+            priority = max(priority, 4)
+        elif predicted_surplus_6h < -1.0 and battery_soc < 60:
+            advice.append(f"Prediction 6 h deficitaire : conso habituelle {predicted_load_next_6h_kwh} kWh superieure au PV prevu {predicted_pv_next_6h_kwh} kWh, conserver la batterie.")
+            priority = max(priority, 4)
+
+        if habit_load_next_6h > max(load_power, 0.1) * 1.25 and battery_soc < 50:
+            advice.append("La consommation habituelle des prochaines heures est elevee : garder une reserve batterie.")
             priority = max(priority, 4)
         if pv_forecast_kw < 1 and battery_soc < 50:
-            advice.append("Faible production solaire prevue : garder une reserve batterie.")
+            advice.append("Faible production solaire prevue : conserver la batterie et reporter les charges flexibles.")
             priority = max(priority, 4)
         if estimated_autonomy_h > 0 and estimated_autonomy_h < 3:
             advice.append(f"Autonomie batterie estimee faible : environ {estimated_autonomy_h} h au rythme actuel.")
             priority = max(priority, 4)
         if estimated_full_h > 0 and estimated_full_h <= 3:
-            advice.append(f"Batterie probablement pleine dans environ {estimated_full_h} h.")
+            advice.append(f"Batterie probablement pleine dans environ {estimated_full_h} h : preparer les usages flexibles.")
             priority = max(priority, 2)
+
         if not advice:
             advice.append("Systeme optimal : aucune action particuliere recommandee.")
             priority = max(priority, 1)
-        return advice[0], priority
+
+        unique = []
+        for item in advice:
+            if item and item not in unique:
+                unique.append(item)
+        return " ".join(unique[:3]), priority
 
     def analyze(self, data):
         try:
@@ -310,33 +674,53 @@ class AiEngine:
             tempo_tomorrow = int(tempo_data.get("tempo_tomorrow", 0))
             tempo_tomorrow_label = tempo_data.get("tempo_tomorrow_label", "Inconnu")
 
-            pv_forecast_kw = self._estimate_pv_forecast(pv_power)
+            weather_context = self._get_weather_context()
+            pv_string_analysis = self._analyze_pv_strings(pv1_power, pv2_power, pv_total_dc_power, pv_power, weather_context)
+            pv_forecast_kw = self._estimate_pv_forecast(pv_power, weather_context)
             habit_load_now = self._average_load_for_hour(datetime.now().hour)
             habit_load_next_6h = self._average_load_next_hours(6)
-            estimated_autonomy_h = self._estimate_autonomy_hours(battery_soc, max(load_power, habit_load_now))
+            predicted_load_next_6h_kwh = self._average_energy_next_hours("load_power", 6)
+            predicted_pv_next_6h_kwh = self._predict_pv_energy_next_hours(pv_power, 6, weather_context)
+
+            load_reference = max(load_power, habit_load_now, 0.1)
+            estimated_autonomy_h = self._estimate_autonomy_hours(battery_soc, load_reference)
             estimated_full_h = self._estimate_full_charge_hours(battery_soc, battery_power, pv_power, load_power)
             energy_mode = self._detect_energy_mode(pv_power, load_power, battery_power, grid_power)
-            pv_string_analysis = self._analyze_pv_strings(pv1_power, pv2_power, pv_total_dc_power, pv_power)
 
             advice, priority = self._build_advice(
                 tempo_today, tempo_tomorrow, battery_soc, pv_power, load_power, grid_power,
-                pv_forecast_kw, habit_load_next_6h, estimated_autonomy_h, estimated_full_h,
-                pv_string_analysis,
+                pv_forecast_kw, habit_load_now, habit_load_next_6h,
+                predicted_pv_next_6h_kwh, predicted_load_next_6h_kwh,
+                estimated_autonomy_h, estimated_full_h,
+                pv_string_analysis, weather_context,
             )
 
-            if priority >= 5:
+            if priority >= 6:
                 confidence = "high"
             elif priority >= 3:
                 confidence = "medium"
             else:
                 confidence = "normal"
 
-            prediction = f"{energy_mode}. PV prevu: {pv_forecast_kw} kW. Autonomie estimee: {estimated_autonomy_h} h."
+            predicted_surplus_6h = self._safe_round(predicted_pv_next_6h_kwh - predicted_load_next_6h_kwh, 2)
+            pv_expected_kw = pv_string_analysis.get("pv_expected_kw", 0.0)
+            pv_perf_pct = pv_string_analysis.get("pv_performance_ratio_pct", 0.0)
+            prediction = (
+                f"{energy_mode}. Meteo: {weather_context.get('label')}. "
+                f"PV prevu maintenant: {pv_forecast_kw} kW. "
+                f"Modele PV: {pv_expected_kw} kW / performance {pv_perf_pct} %. "
+                f"Bilan estime 6 h: {predicted_surplus_6h} kWh. "
+                f"Autonomie estimee: {estimated_autonomy_h} h."
+            )
 
-            if estimated_full_h > 0:
+            if tempo_tomorrow == 3 and battery_soc < self.red_day_target_soc:
+                battery_strategy = f"Preparer jour rouge : viser {int(self.red_day_target_soc)} % et activer Veille HC"
+            elif tempo_today == 3:
+                battery_strategy = "Jour rouge : preserver la batterie et limiter l'import reseau"
+            elif estimated_full_h > 0:
                 battery_strategy = f"Charge complete estimee dans {estimated_full_h} h"
             elif battery_soc >= 95:
-                battery_strategy = "Batterie presque pleine"
+                battery_strategy = "Batterie presque pleine : favoriser les usages flexibles"
             elif battery_soc < 25:
                 battery_strategy = "Preserver la batterie"
             else:
@@ -361,6 +745,14 @@ class AiEngine:
                 "pv_string_status": pv_string_analysis.get("pv_string_status"),
                 "pv_string_alert": pv_string_analysis.get("pv_string_alert"),
                 "pv_string_imbalance_pct": pv_string_analysis.get("pv_string_imbalance_pct"),
+                "pv_expected_kw": pv_string_analysis.get("pv_expected_kw"),
+                "pv_performance_ratio_pct": pv_string_analysis.get("pv_performance_ratio_pct"),
+                "pv1_expected_kw": pv_string_analysis.get("pv1_expected_kw"),
+                "pv2_expected_kw": pv_string_analysis.get("pv2_expected_kw"),
+                "pv1_performance_ratio_pct": pv_string_analysis.get("pv1_performance_ratio_pct"),
+                "pv2_performance_ratio_pct": pv_string_analysis.get("pv2_performance_ratio_pct"),
+                "solar_elevation_deg": pv_string_analysis.get("solar_elevation_deg"),
+                "solar_array_azimuth_deg": pv_string_analysis.get("solar_array_azimuth_deg"),
             }
         except Exception as error:
             print("AI engine error:", error, flush=True)
@@ -384,3 +776,10 @@ class AiEngine:
                 "pv_string_alert": "Diagnostic strings PV indisponible",
                 "pv_string_imbalance_pct": 0,
             }
+
+
+# Compatibility aliases for main.py.
+AIEngine = AiEngine
+AIEnergyEngine = AiEngine
+SolidAIEngine = AiEngine
+EnergyAIEngine = AiEngine

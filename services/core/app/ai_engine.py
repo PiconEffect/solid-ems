@@ -97,6 +97,20 @@ class AiEngine:
         except (TypeError, ValueError):
             return 0.0
 
+    def _limit_text(self, value, max_len=240):
+        """
+        Home Assistant sensor states must stay short. If a text state is too long,
+        HA can mark the entity as unknown/unavailable. Keep advice/prediction compact.
+        """
+        if value is None:
+            return ""
+        text = str(value).replace("\n", " ").strip()
+        while "  " in text:
+            text = text.replace("  ", " ")
+        if len(text) <= max_len:
+            return text
+        return text[: max_len - 1].rstrip() + "…"
+
     def _clamp(self, value, minimum, maximum):
         return max(minimum, min(maximum, value))
 
@@ -764,7 +778,7 @@ class AiEngine:
         for item in advice:
             if item and item not in unique:
                 unique.append(item)
-        return " ".join(unique[:3]), priority
+        return self._limit_text(" ".join(unique[:3]), 240), priority
 
     def analyze(self, data):
         try:
@@ -839,6 +853,8 @@ class AiEngine:
                 f"{limit_note}"
             )
 
+            prediction = self._limit_text(prediction, 240)
+
             if tempo_tomorrow == 3 and battery_soc < self.red_day_target_soc:
                 battery_strategy = f"Preparer jour rouge : viser {int(self.red_day_target_soc)} % et activer Veille HC"
             elif tempo_today == 3:
@@ -851,6 +867,10 @@ class AiEngine:
                 battery_strategy = "Preserver la batterie"
             else:
                 battery_strategy = "Gestion batterie normale"
+
+            battery_strategy = self._limit_text(battery_strategy, 180)
+            energy_mode = self._limit_text(energy_mode, 120)
+            pv_alert_text = self._limit_text(pv_string_analysis.get("pv_string_alert"), 240)
 
             return {
                 "advice": advice,
@@ -869,7 +889,7 @@ class AiEngine:
                 "advice_priority": priority,
                 "advice_confidence": confidence,
                 "pv_string_status": pv_string_analysis.get("pv_string_status"),
-                "pv_string_alert": pv_string_analysis.get("pv_string_alert"),
+                "pv_string_alert": pv_alert_text,
                 "pv_string_imbalance_pct": pv_string_analysis.get("pv_string_imbalance_pct"),
                 "pv_expected_kw": pv_string_analysis.get("pv_expected_kw"),
                 "pv_performance_ratio_pct": pv_string_analysis.get("pv_performance_ratio_pct"),

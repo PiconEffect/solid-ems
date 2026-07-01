@@ -156,6 +156,7 @@ SENSORS = {
     "solid_ems_solid_tempo": {
         "name": "Tempo",
         "key": "tempo",
+        "state_class": "measurement",
         "icon": "mdi:calendar-today",
     },
 
@@ -352,6 +353,7 @@ SENSORS = {
     "panneaux_solaires_solid_ems_solid_tempo_tomorrow": {
         "name": "Tempo Tomorrow",
         "key": "tempo_tomorrow",
+        "state_class": "measurement",
         "icon": "mdi:calendar-arrow-right",
     },
     "panneaux_solaires_solid_ems_solid_tempo_tomorrow_label": {

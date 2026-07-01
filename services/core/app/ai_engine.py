@@ -99,7 +99,7 @@ class AiEngine:
         except (TypeError, ValueError):
             return 0.0
 
-    def _limit_text(self, value, max_len=240):
+    def _limit_text(self, value, max_len=180):
         """
         Home Assistant sensor states must stay short. If a text state is too long,
         HA can mark the entity as unknown/unavailable. Keep advice/prediction compact.
@@ -480,25 +480,25 @@ class AiEngine:
         messages = []
 
         if dc_ac_clipping_suspected:
-            messages.append("Entrée PV proche de la limite utilisable 9,6 kW : un écrêtage/bridage PV est possible.")
+            messages.append("PV DC proche limite 9,6 kW : écrêtage possible.")
         elif ac_clipping_risk:
-            messages.append("Réinjection AC calculée proche de la limite 6 kW de l'onduleur.")
+            messages.append("Réinjection AC proche limite 6 kW.")
         elif pv_dc_usable_clipping_risk:
-            messages.append("Puissance DC proche de la limite PV utilisable 9,6 kW de l'onduleur.")
+            messages.append("PV DC proche limite utilisable 9,6 kW.")
 
         if battery_charge_above_nominal:
-            messages.append("Charge batterie au-dessus de la limite théorique 6 kW : mesure probablement côté DC ou transitoire, à surveiller.")
+            messages.append("Charge batt. >6 kW : mesure DC/transitoire à surveiller.")
         elif battery_charge_near_limit:
-            messages.append("Charge batterie proche de la limite 6 kW : le surplus PV est presque entièrement absorbé par la batterie.")
+            messages.append("Charge batt. proche 6 kW : surplus PV absorbé.")
         elif battery_discharge_above_nominal:
-            messages.append("Décharge batterie au-dessus de la limite théorique 6 kW : vérifier les pics de consommation.")
+            messages.append("Déch. batt. >6 kW : vérifier pics conso.")
         elif battery_discharge_near_limit:
-            messages.append("Décharge batterie proche de la limite 6 kW : surveiller les gros consommateurs.")
+            messages.append("Déch. batt. proche 6 kW : surveiller gros consommateurs.")
 
         if export_limited and pv_ac > load and battery_charge_limited:
-            messages.append("Réinjection réseau limitée : risque de bridage si aucun usage local n'est lancé.")
+            messages.append("Injection limitée : lancer usage local si surplus.")
         elif export_limited and curtailment_risk:
-            messages.append("Réinjection réseau limitée : surplus solaire prévu supérieur à la capacité d'absorption maison + batterie.")
+            messages.append("Injection limitée : surplus > maison + batterie.")
 
         return {
             "ac_headroom_kw": self._safe_round(ac_injection_headroom_kw, 2),
@@ -572,15 +572,15 @@ class AiEngine:
             if perf_ratio > 0 and perf_ratio < self.pv_perf_warning_pct:
                 status = "WARNING"
                 alert = (
-                    f"Production PV sous l'attendu : {perf_ratio} % du modele "
+                    f"PV sous attendu : {perf_ratio} % modèle "
                     f"({self._safe_round(max(pv_ac, pv_dc), 2)} kW reels vs {expected_total} kW attendus). "
-                    f"Verifier meteo locale, ombrage, encrassement ou limitation onduleur."
+                    f"Vérifier météo locale, ombrage, encrassement."
                 )
                 priority = max(priority, 5)
             elif perf_ratio > 0 and perf_ratio < self.pv_perf_watch_pct:
                 status = "WATCH"
                 alert = (
-                    f"Production PV legerement sous l'attendu : {perf_ratio} % du modele "
+                    f"PV un peu sous attendu : {perf_ratio} % modèle "
                     f"({self._safe_round(max(pv_ac, pv_dc), 2)} kW reels vs {expected_total} kW attendus)."
                 )
                 priority = max(priority, 3)
@@ -597,19 +597,19 @@ class AiEngine:
 
             if pv1_reference > 1.0 and pv1 < 0.15:
                 status = "CRITICAL"
-                alert = "Possible defaut String PV1 : production quasi nulle par rapport a son historique"
+                alert = "Défaut possible PV1 : quasi nul vs historique"
                 priority = 6
             elif pv2_reference > 1.0 and pv2 < 0.15:
                 status = "CRITICAL"
-                alert = "Possible defaut String PV2 : production quasi nulle par rapport a son historique"
+                alert = "Défaut possible PV2 : quasi nul vs historique"
                 priority = 6
             elif pv1_drop_pct >= 45 and pv1_reference > 0.8:
                 status = "WARNING"
-                alert = "PV1 nettement sous son niveau habituel : verifier ombrage, connectique ou panneau"
+                alert = "PV1 sous historique : vérifier ombrage/connectique."
                 priority = max(priority, 5)
             elif pv2_drop_pct >= 45 and pv2_reference > 0.8:
                 status = "WARNING"
-                alert = "PV2 nettement sous son niveau habituel : verifier ombrage, connectique ou panneau"
+                alert = "PV2 sous historique : vérifier ombrage/connectique."
                 priority = max(priority, 5)
 
         # Expected string comparison with orientation awareness.
@@ -625,13 +625,13 @@ class AiEngine:
         # Contextual normal orientation notes.
         if status == "OK" and pv1 > 0 and pv2 > 0:
             if sun_az < -20 and pv1 < pv2:
-                alert = "PV1 inferieur a PV2 ce matin : coherent avec orientation sud-sud-ouest. Production globale conforme."
+                alert = "Matin : PV1 < PV2 normal (SSO). Production conforme."
             elif sun_az > 20 and pv1 >= pv2:
-                alert = "PV1 reprend l'avantage l'apres-midi : comportement coherent avec orientation sud-sud-ouest."
+                alert = "Après-midi : PV1 > PV2 normal (SSO)."
             elif perf_ratio >= 90:
-                alert = f"Production PV conforme au modele saison/meteo : {perf_ratio} % de l'attendu."
+                alert = f"PV conforme saison/météo : {perf_ratio} % attendu."
             else:
-                alert = "Strings PV conformes a leur comportement attendu."
+                alert = "Strings PV conformes."
 
         if pv_dc > 1.0 and pv_ac > 0:
             ac_dc_ratio = pv_ac / pv_dc
@@ -748,85 +748,85 @@ class AiEngine:
         if isinstance(power_limits_analysis, dict) and power_limits_analysis.get("curtailment_risk"):
             flex_kw = power_limits_analysis.get("effective_flexible_load_kw", 0.0)
             if flex_kw >= 0.8 and tempo_today != 3:
-                advice.append(f"Surplus possiblement bridé : lancer environ {flex_kw} kW d'usages flexibles peut améliorer l'autoconsommation.")
+                advice.append(f"Surplus bridable : lancer env. {flex_kw} kW flexibles.")
                 priority = max(priority, 5)
 
         if tempo_tomorrow == 3:
-            advice.append("Demain sera rouge : viser une batterie haute ce soir et activer Veille HC la nuit pour eviter de vider la batterie en heures creuses.")
+            advice.append("Demain rouge : viser batterie haute + Veille HC nuit.")
             priority = max(priority, 7)
             if battery_soc < self.red_day_target_soc:
-                advice.append(f"Objectif recommande avant demain matin : atteindre environ {int(self.red_day_target_soc)} % de batterie.")
+                advice.append(f"Objectif demain matin : {int(self.red_day_target_soc)} % batterie.")
                 priority = max(priority, 7)
             if next_hours_good_for_load and tempo_today != 3:
-                advice.append("Fenetre solaire favorable avant jour rouge : lancer maintenant ballon, lave-linge, lave-vaisselle ou recharge pilotable plutot que demain.")
+                advice.append("Avant jour rouge : lancer usages lourds maintenant si surplus.")
                 priority = max(priority, 6)
         elif tempo_tomorrow == 2:
-            advice.append("Demain sera blanc : conserver une marge batterie et avancer les usages flexibles si le solaire est disponible aujourd'hui.")
+            advice.append("Demain blanc : garder marge batt. et avancer usages flexibles.")
             priority = max(priority, 4)
             if battery_soc < self.white_day_target_soc:
-                advice.append(f"Objectif prudent : garder au moins {int(self.white_day_target_soc)} % de batterie avant demain matin.")
+                advice.append(f"Objectif prudent : {int(self.white_day_target_soc)} % batt.")
                 priority = max(priority, 4)
 
         if tempo_today == 3:
-            advice.append("Aujourd'hui est rouge : limiter les gros consommateurs, conserver la batterie pour les heures pleines et eviter l'import reseau.")
+            advice.append("Jour rouge : limiter gros usages, préserver batterie.")
             priority = max(priority, 7)
             if grid_power > 0.1:
-                advice.append("Import reseau detecte en jour rouge : couper ou reporter immediatement les charges non critiques.")
+                advice.append("Jour rouge + import : couper charges non critiques.")
                 priority = max(priority, 8)
         elif tempo_today == 2:
-            advice.append("Tempo blanc aujourd'hui : privilegier les usages energivores pendant les periodes de surplus solaire.")
+            advice.append("Tempo blanc : usages lourds seulement sur surplus PV.")
             priority = max(priority, 3)
         elif tempo_today == 1:
             if next_hours_good_for_load and battery_soc >= 50:
-                advice.append(f"Tempo bleu et {weather_label} : surplus probable sur 6 h, bon moment pour lancer les appareils energivores pilotables.")
+                advice.append(f"Bleu + {weather_label} : lancer appareils pilotables.")
                 priority = max(priority, 4)
             else:
-                advice.append("Tempo bleu : jour favorable, surveiller le surplus solaire et charger la batterie sans contrainte forte.")
+                advice.append("Tempo bleu : charger batterie, surveiller surplus.")
                 priority = max(priority, 2)
 
         if battery_soc < self.low_soc_threshold:
-            advice.append("Batterie faible : limiter la consommation non critique jusqu'au retour d'une production suffisante.")
+            advice.append("Batterie faible : limiter conso non critique.")
             priority = max(priority, 6)
         elif battery_soc < 35 and tempo_tomorrow == 3:
-            advice.append("Batterie trop basse avant un jour rouge : eviter toute decharge inutile et preparer la Veille HC.")
+            advice.append("Batt. basse avant rouge : éviter décharge, préparer Veille HC.")
             priority = max(priority, 7)
 
         if pv_power > load_power and battery_soc < 95:
-            advice.append("Production PV superieure a la maison : laisser charger la batterie en priorite.")
+            advice.append("PV > maison : priorité charge batterie.")
             priority = max(priority, 3)
         if pv_power > load_power and battery_soc >= 95:
-            advice.append("Batterie presque pleine et surplus solaire : lancer les usages flexibles maintenant pour maximiser l'autoconsommation.")
+            advice.append("Batt. presque pleine : lancer usages flexibles.")
             priority = max(priority, 4)
 
         if next_hours_good_for_load and tempo_today != 3 and battery_soc >= 60:
-            advice.append(f"Prediction 6 h : PV estime {predicted_pv_next_6h_kwh} kWh vs conso habituelle {predicted_load_next_6h_kwh} kWh, usages energivores recommandes.")
+            advice.append(f"6h : PV {predicted_pv_next_6h_kwh} kWh > conso {predicted_load_next_6h_kwh} kWh, usages OK.")
             priority = max(priority, 4)
         elif predicted_surplus_6h < -1.0 and battery_soc < 60:
-            advice.append(f"Prediction 6 h deficitaire : conso habituelle {predicted_load_next_6h_kwh} kWh superieure au PV prevu {predicted_pv_next_6h_kwh} kWh, conserver la batterie.")
+            advice.append(f"6h déficitaire : conso {predicted_load_next_6h_kwh} kWh > PV {predicted_pv_next_6h_kwh} kWh, préserver batt.")
             priority = max(priority, 4)
 
         if habit_load_next_6h > max(load_power, 0.1) * 1.25 and battery_soc < 50:
-            advice.append("La consommation habituelle des prochaines heures est elevee : garder une reserve batterie.")
+            advice.append("Conso prochaine élevée : garder réserve batt.")
             priority = max(priority, 4)
         if pv_forecast_kw < 1 and battery_soc < 50:
-            advice.append("Faible production solaire prevue : conserver la batterie et reporter les charges flexibles.")
+            advice.append("PV faible prévu : reporter charges flexibles.")
             priority = max(priority, 4)
         if estimated_autonomy_h > 0 and estimated_autonomy_h < 3:
-            advice.append(f"Autonomie batterie estimee faible : environ {estimated_autonomy_h} h au rythme actuel.")
+            advice.append(f"Autonomie faible : env. {estimated_autonomy_h} h.")
             priority = max(priority, 4)
         if estimated_full_h > 0 and estimated_full_h <= 3:
-            advice.append(f"Batterie probablement pleine dans environ {estimated_full_h} h : preparer les usages flexibles.")
+            advice.append(f"Batt. pleine dans env. {estimated_full_h} h : préparer usages.")
             priority = max(priority, 2)
 
         if not advice:
-            advice.append("Systeme optimal : aucune action particuliere recommandee.")
+            advice.append("Système OK : aucune action.")
             priority = max(priority, 1)
 
         unique = []
         for item in advice:
             if item and item not in unique:
                 unique.append(item)
-        return self._limit_text(" ".join(unique[:3]), 240), priority
+        return self._limit_text(" | ".join(unique[:3]), 180), priority
 
     def analyze(self, data):
         try:
@@ -893,15 +893,13 @@ class AiEngine:
                 limit_note = " Réinjection AC proche limite 6 kW."
 
             prediction = (
-                f"{energy_mode}. Meteo: {weather_context.get('label')}. "
-                f"PV prevu maintenant: {pv_forecast_kw} kW. "
-                f"Modele PV: {pv_expected_kw} kW / performance {pv_perf_pct} %. "
-                f"Bilan estime 6 h: {predicted_surplus_6h} kWh. "
-                f"Autonomie estimee: {estimated_autonomy_h} h."
+                f"{energy_mode}. Météo {weather_context.get('label')}. "
+                f"PV {pv_forecast_kw} kW, modèle {pv_expected_kw} kW ({pv_perf_pct} %). "
+                f"Bilan 6h {predicted_surplus_6h} kWh. Autonomie {estimated_autonomy_h} h."
                 f"{limit_note}"
             )
 
-            prediction = self._limit_text(prediction, 240)
+            prediction = self._limit_text(prediction, 180)
 
             if tempo_tomorrow == 3 and battery_soc < self.red_day_target_soc:
                 battery_strategy = f"Preparer jour rouge : viser {int(self.red_day_target_soc)} % et activer Veille HC"
@@ -916,9 +914,9 @@ class AiEngine:
             else:
                 battery_strategy = "Gestion batterie normale"
 
-            battery_strategy = self._limit_text(battery_strategy, 180)
+            battery_strategy = self._limit_text(battery_strategy, 120)
             energy_mode = self._limit_text(energy_mode, 120)
-            pv_alert_text = self._limit_text(pv_string_analysis.get("pv_string_alert"), 240)
+            pv_alert_text = self._limit_text(pv_string_analysis.get("pv_string_alert"), 180)
 
             return {
                 "advice": advice,

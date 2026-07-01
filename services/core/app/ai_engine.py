@@ -15,8 +15,10 @@ from weather import Weather
 #   -35 = south-south-east / east of south
 # -----------------------------------------------------------------------------
 PV_SITE = {
-    "latitude": 50.28,
-    "longitude": 2.80,
+    # Localisation installation : Montarnaud 34570, France.
+    # Coordonnées utilisées pour le modèle solaire localisé.
+    "latitude": 43.649,
+    "longitude": 3.698,
 }
 
 PV_ARRAYS = {
@@ -26,7 +28,7 @@ PV_ARRAYS = {
         "panels": 10,
         "panel_wp": 515,
         "azimuth_deg": 35.0,
-        "tilt_deg": 30.0,
+        "tilt_deg": 33.0,
     },
     "pv2": {
         "label": "PV2 sud",
@@ -34,7 +36,7 @@ PV_ARRAYS = {
         "panels": 9,
         "panel_wp": 490,
         "azimuth_deg": 0.0,
-        "tilt_deg": 30.0,
+        "tilt_deg": 33.0,
     },
 }
 
@@ -433,32 +435,30 @@ class AiEngine:
             battery_charge_headroom_kw = min(battery_charge_headroom_kw, 1.0)
 
         # Réinjection AC calculée, conformément à la logique demandée :
-        # injection = production solaire AC - charge batterie - import AC réseau.
-        # On évite d'utiliser directement -grid_power ici, car grid_power peut être
-        # une mesure réseau nette déjà influencée par d'autres flux.
+        # injection AC = production solaire - charge batterie - import AC réseau.
+        # Important : la limite AC 6 kW ne doit PAS être déclenchée par la puissance
+        # PV totale ni par la charge batterie. Elle ne concerne ici que la puissance
+        # réellement susceptible d'être réinjectée vers le réseau.
         grid_import_ac_kw = max(0.0, grid_p)
         calculated_grid_export_kw = max(0.0, pv_ac - battery_charge_now - grid_import_ac_kw)
 
         current_export_kw = calculated_grid_export_kw
         export_headroom_kw = max(0.0, GRID_EXPORT_LIMIT_KW - current_export_kw)
-        ac_headroom_kw = max(0.0, INVERTER_AC_POWER_LIMIT_KW - pv_ac)
+        ac_injection_headroom_kw = max(0.0, INVERTER_AC_POWER_LIMIT_KW - calculated_grid_export_kw)
 
         # Puissance PV théorique utilisable sans bridage :
         # charge maison + marge charge batterie + marge injection.
         usable_without_curtailment_kw = load + battery_charge_headroom_kw + export_headroom_kw
 
-        # Limite AC : uniquement liée à la puissance AC PV/onduleur,
-        # pas à la puissance de charge batterie.
-        ac_clipping_risk = pv_ac >= (INVERTER_AC_POWER_LIMIT_KW - LIMIT_MARGIN_KW)
+        # Limite AC : uniquement liée à la réinjection AC calculée.
+        # Si la maison consomme peu et que le réseau est en import, cette alerte doit rester fausse.
+        ac_clipping_risk = calculated_grid_export_kw >= (INVERTER_AC_POWER_LIMIT_KW - LIMIT_MARGIN_KW)
 
         # Limite PV DC utilisable : proche de 9,6 kW pour le modèle 6K.
         pv_dc_usable_clipping_risk = pv_dc >= (PV_DC_USABLE_LIMIT_KW - LIMIT_MARGIN_KW)
 
         dc_ac_gap_kw = max(0.0, pv_dc - pv_ac)
-        dc_ac_clipping_suspected = (
-            (ac_clipping_risk or pv_dc_usable_clipping_risk)
-            and dc_ac_gap_kw >= 0.5
-        )
+        dc_ac_clipping_suspected = pv_dc_usable_clipping_risk and dc_ac_gap_kw >= 0.5
 
         # Limites batterie : séparées de la limite AC.
         battery_charge_near_limit = battery_charge_now >= (BATTERY_CHARGE_LIMIT_KW - LIMIT_MARGIN_KW)
@@ -480,9 +480,9 @@ class AiEngine:
         messages = []
 
         if dc_ac_clipping_suspected:
-            messages.append("Onduleur ou entrée PV proche de sa limite : un écrêtage/bridage PV est possible.")
+            messages.append("Entrée PV proche de la limite utilisable 9,6 kW : un écrêtage/bridage PV est possible.")
         elif ac_clipping_risk:
-            messages.append("Puissance AC PV proche de la limite 6 kW de l'onduleur.")
+            messages.append("Réinjection AC calculée proche de la limite 6 kW de l'onduleur.")
         elif pv_dc_usable_clipping_risk:
             messages.append("Puissance DC proche de la limite PV utilisable 9,6 kW de l'onduleur.")
 
@@ -501,7 +501,8 @@ class AiEngine:
             messages.append("Réinjection réseau limitée : surplus solaire prévu supérieur à la capacité d'absorption maison + batterie.")
 
         return {
-            "ac_headroom_kw": self._safe_round(ac_headroom_kw, 2),
+            "ac_headroom_kw": self._safe_round(ac_injection_headroom_kw, 2),
+            "ac_injection_headroom_kw": self._safe_round(ac_injection_headroom_kw, 2),
             "battery_charge_headroom_kw": self._safe_round(battery_charge_headroom_kw, 2),
             "export_headroom_kw": self._safe_round(export_headroom_kw, 2),
             "usable_without_curtailment_kw": self._safe_round(usable_without_curtailment_kw, 2),
@@ -889,7 +890,7 @@ class AiEngine:
             if power_limits_analysis.get("curtailment_risk"):
                 limit_note = f" Limite injection/charge : {power_limits_analysis.get('effective_flexible_load_kw', 0)} kW flexibles utiles."
             elif power_limits_analysis.get("ac_clipping_risk"):
-                limit_note = " Onduleur proche limite AC."
+                limit_note = " Réinjection AC proche limite 6 kW."
 
             prediction = (
                 f"{energy_mode}. Meteo: {weather_context.get('label')}. "
@@ -954,6 +955,7 @@ class AiEngine:
                 "grid_export_headroom_kw": power_limits_analysis.get("export_headroom_kw"),
                 "grid_import_ac_kw": power_limits_analysis.get("grid_import_ac_kw"),
                 "calculated_grid_export_kw": power_limits_analysis.get("calculated_grid_export_kw"),
+                "ac_injection_headroom_kw": power_limits_analysis.get("ac_injection_headroom_kw"),
                 "pv_flexible_load_recommended_kw": power_limits_analysis.get("effective_flexible_load_kw"),
                 "pv_curtailment_risk": bool(power_limits_analysis.get("curtailment_risk")),
                 "pv_ac_clipping_risk": bool(power_limits_analysis.get("ac_clipping_risk")),

@@ -49,6 +49,13 @@ class BatteryControl:
         self.validation_retry_interval_s = 300
         self.last_mode_values = {}
 
+        # Etat interne Veille HC / off-peak.
+        # Ajouté sans modifier les fonctions existantes.
+        self.offpeak_inhibit_armed = False
+        self.offpeak_window_start = "22:00"
+        self.offpeak_window_end = "06:00"
+        self.offpeak_last_command = None
+
         self.charge_switch_cids = [5916, 5917, 5918, 5919, 5920, 5921]
         self.discharge_switch_cids = [5922, 5923, 5924, 5925, 5926, 5927]
         self.charge_soc_cids = [5928, 5929, 5930, 5931, 5932, 5933]
@@ -851,6 +858,26 @@ class BatteryControl:
 
         return self.join_6972_groups(new_groups)
 
+    def _command_bool(self, value, default=False):
+        if value is None:
+            return default
+
+        if isinstance(value, bool):
+            return value
+
+        if isinstance(value, (int, float)):
+            return value != 0
+
+        text = str(value).strip().lower()
+
+        if text in ["1", "true", "yes", "on", "enabled", "armed"]:
+            return True
+
+        if text in ["0", "false", "no", "off", "disabled", "disarmed"]:
+            return False
+
+        return default
+
     def handle_command(self, command):
         print("BATTERY CONTROL command received:", command, flush=True)
 
@@ -888,9 +915,29 @@ class BatteryControl:
             return
 
         if action == "arm_inhibit_discharge":
-            print("BATTERY CONTROL armed for off-peak window", flush=True)
-            if self.auto_validate and not self.validation_done:
-                self.validate_solis_charge_discharge_settings(force=False)
+            armed = self._command_bool(command.get("armed", enabled), default=False)
+
+            self.offpeak_inhibit_armed = armed
+            self.offpeak_window_start = str(command.get("window_start", self.offpeak_window_start or "22:00"))
+            self.offpeak_window_end = str(command.get("window_end", self.offpeak_window_end or "06:00"))
+            self.offpeak_last_command = dict(command)
+
+            if armed:
+                print(
+                    f"BATTERY CONTROL armed for off-peak window "
+                    f"{self.offpeak_window_start}-{self.offpeak_window_end}",
+                    flush=True,
+                )
+
+                if self.auto_validate and not self.validation_done:
+                    self.validate_solis_charge_discharge_settings(force=False)
+            else:
+                print(
+                    f"BATTERY CONTROL disarmed for off-peak window "
+                    f"{self.offpeak_window_start}-{self.offpeak_window_end}",
+                    flush=True,
+                )
+
             return
 
         if action == "inhibit_discharge":

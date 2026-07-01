@@ -402,11 +402,12 @@ class AiEngine:
 
     def _analyze_power_limits(self, pv_power, pv_total_dc_power, load_power, battery_power, grid_power, battery_soc, pv_expected_kw):
         """
-        Analyse les limites physiques/réglementaires de l'installation :
-        - limite AC onduleur,
-        - limite de charge batterie,
-        - limite de réinjection réseau,
-        - écrêtage/bridage possible si le PV disponible dépasse ce qui peut être consommé, stocké ou injecté.
+        Analyse les limites physiques/réglementaires de l'installation sans mélanger :
+        - limite AC onduleur 6 kW,
+        - limite PV DC utilisable 9,6 kW,
+        - limite de charge batterie 6 kW,
+        - limite de décharge batterie 6 kW,
+        - limite de réinjection réseau.
 
         Convention existante du projet :
         - grid_power > 0 : import réseau
@@ -423,6 +424,8 @@ class AiEngine:
         expected = self._to_float(pv_expected_kw)
 
         battery_charge_now = max(0.0, batt_p)
+        battery_discharge_now = max(0.0, -batt_p)
+
         battery_charge_headroom_kw = max(0.0, BATTERY_CHARGE_LIMIT_KW - battery_charge_now)
         if soc >= 95:
             battery_charge_headroom_kw = min(battery_charge_headroom_kw, 0.3)
@@ -433,30 +436,57 @@ class AiEngine:
         export_headroom_kw = max(0.0, GRID_EXPORT_LIMIT_KW - current_export_kw)
         ac_headroom_kw = max(0.0, INVERTER_AC_POWER_LIMIT_KW - pv_ac)
 
-        # Puissance PV théorique utilisable sans bridage : charge maison + marge charge batterie + marge injection.
+        # Puissance PV théorique utilisable sans bridage :
+        # charge maison + marge charge batterie + marge injection.
         usable_without_curtailment_kw = load + battery_charge_headroom_kw + export_headroom_kw
 
+        # Limite AC : uniquement liée à la puissance AC PV/onduleur,
+        # pas à la puissance de charge batterie.
         ac_clipping_risk = pv_ac >= (INVERTER_AC_POWER_LIMIT_KW - LIMIT_MARGIN_KW)
+
+        # Limite PV DC utilisable : proche de 9,6 kW pour le modèle 6K.
         pv_dc_usable_clipping_risk = pv_dc >= (PV_DC_USABLE_LIMIT_KW - LIMIT_MARGIN_KW)
+
         dc_ac_gap_kw = max(0.0, pv_dc - pv_ac)
-        dc_ac_clipping_suspected = (ac_clipping_risk or pv_dc_usable_clipping_risk) and dc_ac_gap_kw >= 0.5
+        dc_ac_clipping_suspected = (
+            (ac_clipping_risk or pv_dc_usable_clipping_risk)
+            and dc_ac_gap_kw >= 0.5
+        )
 
-        battery_charge_limited = battery_charge_now >= (BATTERY_CHARGE_LIMIT_KW - LIMIT_MARGIN_KW) or soc >= 95
-        export_limited = GRID_EXPORT_LIMIT_KW <= 0.1 or current_export_kw >= max(0.0, GRID_EXPORT_LIMIT_KW - LIMIT_MARGIN_KW)
+        # Limites batterie : séparées de la limite AC.
+        battery_charge_near_limit = battery_charge_now >= (BATTERY_CHARGE_LIMIT_KW - LIMIT_MARGIN_KW)
+        battery_charge_above_nominal = battery_charge_now > (BATTERY_CHARGE_LIMIT_KW + 0.2)
+        battery_discharge_near_limit = battery_discharge_now >= (BATTERY_DISCHARGE_LIMIT_KW - LIMIT_MARGIN_KW)
+        battery_discharge_above_nominal = battery_discharge_now > (BATTERY_DISCHARGE_LIMIT_KW + 0.2)
+
+        battery_charge_limited = battery_charge_near_limit or battery_charge_above_nominal or soc >= 95
+        battery_discharge_limited = battery_discharge_near_limit or battery_discharge_above_nominal
+
+        export_limited = (
+            GRID_EXPORT_LIMIT_KW <= 0.1
+            or current_export_kw >= max(0.0, GRID_EXPORT_LIMIT_KW - LIMIT_MARGIN_KW)
+        )
+
         curtailment_risk = expected > (usable_without_curtailment_kw + LIMIT_MARGIN_KW)
-
         effective_flexible_load_kw = max(0.0, expected - usable_without_curtailment_kw)
 
         messages = []
+
         if dc_ac_clipping_suspected:
             messages.append("Onduleur ou entrée PV proche de sa limite : un écrêtage/bridage PV est possible.")
         elif ac_clipping_risk:
-            messages.append("Puissance PV proche de la limite AC 6 kW de l'onduleur.")
+            messages.append("Puissance AC PV proche de la limite 6 kW de l'onduleur.")
         elif pv_dc_usable_clipping_risk:
             messages.append("Puissance DC proche de la limite PV utilisable 9,6 kW de l'onduleur.")
 
-        if battery_charge_limited and pv_ac > load:
-            messages.append("Charge batterie proche de sa limite ou batterie presque pleine : privilégier les usages flexibles.")
+        if battery_charge_above_nominal:
+            messages.append("Charge batterie au-dessus de la limite théorique 6 kW : mesure probablement côté DC ou transitoire, à surveiller.")
+        elif battery_charge_near_limit:
+            messages.append("Charge batterie proche de la limite 6 kW : le surplus PV est presque entièrement absorbé par la batterie.")
+        elif battery_discharge_above_nominal:
+            messages.append("Décharge batterie au-dessus de la limite théorique 6 kW : vérifier les pics de consommation.")
+        elif battery_discharge_near_limit:
+            messages.append("Décharge batterie proche de la limite 6 kW : surveiller les gros consommateurs.")
 
         if export_limited and pv_ac > load and battery_charge_limited:
             messages.append("Réinjection réseau limitée : risque de bridage si aucun usage local n'est lancé.")
@@ -469,14 +499,22 @@ class AiEngine:
             "export_headroom_kw": self._safe_round(export_headroom_kw, 2),
             "usable_without_curtailment_kw": self._safe_round(usable_without_curtailment_kw, 2),
             "effective_flexible_load_kw": self._safe_round(effective_flexible_load_kw, 2),
+            "battery_charge_now_kw": self._safe_round(battery_charge_now, 2),
+            "battery_discharge_now_kw": self._safe_round(battery_discharge_now, 2),
             "ac_clipping_risk": ac_clipping_risk,
             "pv_dc_usable_clipping_risk": pv_dc_usable_clipping_risk,
             "dc_ac_clipping_suspected": dc_ac_clipping_suspected,
+            "battery_charge_near_limit": battery_charge_near_limit,
+            "battery_charge_above_nominal": battery_charge_above_nominal,
+            "battery_discharge_near_limit": battery_discharge_near_limit,
+            "battery_discharge_above_nominal": battery_discharge_above_nominal,
             "battery_charge_limited": battery_charge_limited,
+            "battery_discharge_limited": battery_discharge_limited,
             "export_limited": export_limited,
             "curtailment_risk": curtailment_risk,
             "messages": messages,
         }
+
 
     # -------------------------------------------------------------------------
     # PV diagnostics and energy advice

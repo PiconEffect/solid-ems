@@ -432,7 +432,14 @@ class AiEngine:
         elif soc >= 90:
             battery_charge_headroom_kw = min(battery_charge_headroom_kw, 1.0)
 
-        current_export_kw = max(0.0, -grid_p)
+        # Réinjection AC calculée, conformément à la logique demandée :
+        # injection = production solaire AC - charge batterie - import AC réseau.
+        # On évite d'utiliser directement -grid_power ici, car grid_power peut être
+        # une mesure réseau nette déjà influencée par d'autres flux.
+        grid_import_ac_kw = max(0.0, grid_p)
+        calculated_grid_export_kw = max(0.0, pv_ac - battery_charge_now - grid_import_ac_kw)
+
+        current_export_kw = calculated_grid_export_kw
         export_headroom_kw = max(0.0, GRID_EXPORT_LIMIT_KW - current_export_kw)
         ac_headroom_kw = max(0.0, INVERTER_AC_POWER_LIMIT_KW - pv_ac)
 
@@ -501,6 +508,8 @@ class AiEngine:
             "effective_flexible_load_kw": self._safe_round(effective_flexible_load_kw, 2),
             "battery_charge_now_kw": self._safe_round(battery_charge_now, 2),
             "battery_discharge_now_kw": self._safe_round(battery_discharge_now, 2),
+            "grid_import_ac_kw": self._safe_round(grid_import_ac_kw, 2),
+            "calculated_grid_export_kw": self._safe_round(calculated_grid_export_kw, 2),
             "ac_clipping_risk": ac_clipping_risk,
             "pv_dc_usable_clipping_risk": pv_dc_usable_clipping_risk,
             "dc_ac_clipping_suspected": dc_ac_clipping_suspected,
@@ -943,6 +952,8 @@ class AiEngine:
                 "pv_ac_headroom_kw": power_limits_analysis.get("ac_headroom_kw"),
                 "battery_charge_headroom_kw": power_limits_analysis.get("battery_charge_headroom_kw"),
                 "grid_export_headroom_kw": power_limits_analysis.get("export_headroom_kw"),
+                "grid_import_ac_kw": power_limits_analysis.get("grid_import_ac_kw"),
+                "calculated_grid_export_kw": power_limits_analysis.get("calculated_grid_export_kw"),
                 "pv_flexible_load_recommended_kw": power_limits_analysis.get("effective_flexible_load_kw"),
                 "pv_curtailment_risk": bool(power_limits_analysis.get("curtailment_risk")),
                 "pv_ac_clipping_risk": bool(power_limits_analysis.get("ac_clipping_risk")),

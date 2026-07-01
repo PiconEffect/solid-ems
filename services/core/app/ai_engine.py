@@ -43,6 +43,26 @@ PV_TEMP_COEFF_PCT_PER_C = -0.40
 PV_REF_TEMP_C = 25.0
 PV_MODEL_DERATE = 0.88
 
+# Inverter / grid / battery power limits used by the embedded AI.
+# These limits are intentionally kept in ai_engine.py because they describe this fixed installation.
+# If the installation contract/settings change, update these constants only.
+# Fixed installation: Solis S6-EH1P6K-L-PLUS.
+# Datasheet model 6K:
+# - max recommended PV array size: 12 kW
+# - max usable PV input power: 9.6 kW
+# - nominal AC output power: 6 kW
+# - max battery charge/discharge power: 6 kW
+# - max AC input current: 40 A, approximated as 9.2 kW at 230 V
+INVERTER_AC_POWER_LIMIT_KW = 6.0
+PV_DC_INSTALLED_LIMIT_KW = PV_TOTAL_KWP
+PV_DC_RECOMMENDED_MAX_KW = 12.0
+PV_DC_USABLE_LIMIT_KW = 9.6
+BATTERY_CHARGE_LIMIT_KW = 6.0
+BATTERY_DISCHARGE_LIMIT_KW = 6.0
+GRID_EXPORT_LIMIT_KW = 0.0
+GRID_IMPORT_LIMIT_KW = 9.2
+LIMIT_MARGIN_KW = 0.35
+
 
 class AiEngine:
     def __init__(self):
@@ -366,6 +386,84 @@ class AiEngine:
             "pv_performance_ratio_pct": ratio(actual_total, pv_expected),
         }
 
+    def _analyze_power_limits(self, pv_power, pv_total_dc_power, load_power, battery_power, grid_power, battery_soc, pv_expected_kw):
+        """
+        Analyse les limites physiques/réglementaires de l'installation :
+        - limite AC onduleur,
+        - limite de charge batterie,
+        - limite de réinjection réseau,
+        - écrêtage/bridage possible si le PV disponible dépasse ce qui peut être consommé, stocké ou injecté.
+
+        Convention existante du projet :
+        - grid_power > 0 : import réseau
+        - grid_power < 0 : injection réseau
+        - battery_power > 0 : charge batterie
+        - battery_power < 0 : décharge batterie
+        """
+        pv_ac = self._to_float(pv_power)
+        pv_dc = self._to_float(pv_total_dc_power)
+        load = self._to_float(load_power)
+        batt_p = self._to_float(battery_power)
+        grid_p = self._to_float(grid_power)
+        soc = self._to_float(battery_soc)
+        expected = self._to_float(pv_expected_kw)
+
+        battery_charge_now = max(0.0, batt_p)
+        battery_charge_headroom_kw = max(0.0, BATTERY_CHARGE_LIMIT_KW - battery_charge_now)
+        if soc >= 95:
+            battery_charge_headroom_kw = min(battery_charge_headroom_kw, 0.3)
+        elif soc >= 90:
+            battery_charge_headroom_kw = min(battery_charge_headroom_kw, 1.0)
+
+        current_export_kw = max(0.0, -grid_p)
+        export_headroom_kw = max(0.0, GRID_EXPORT_LIMIT_KW - current_export_kw)
+        ac_headroom_kw = max(0.0, INVERTER_AC_POWER_LIMIT_KW - pv_ac)
+
+        # Puissance PV théorique utilisable sans bridage : charge maison + marge charge batterie + marge injection.
+        usable_without_curtailment_kw = load + battery_charge_headroom_kw + export_headroom_kw
+
+        ac_clipping_risk = pv_ac >= (INVERTER_AC_POWER_LIMIT_KW - LIMIT_MARGIN_KW)
+        pv_dc_usable_clipping_risk = pv_dc >= (PV_DC_USABLE_LIMIT_KW - LIMIT_MARGIN_KW)
+        dc_ac_gap_kw = max(0.0, pv_dc - pv_ac)
+        dc_ac_clipping_suspected = (ac_clipping_risk or pv_dc_usable_clipping_risk) and dc_ac_gap_kw >= 0.5
+
+        battery_charge_limited = battery_charge_now >= (BATTERY_CHARGE_LIMIT_KW - LIMIT_MARGIN_KW) or soc >= 95
+        export_limited = GRID_EXPORT_LIMIT_KW <= 0.1 or current_export_kw >= max(0.0, GRID_EXPORT_LIMIT_KW - LIMIT_MARGIN_KW)
+        curtailment_risk = expected > (usable_without_curtailment_kw + LIMIT_MARGIN_KW)
+
+        effective_flexible_load_kw = max(0.0, expected - usable_without_curtailment_kw)
+
+        messages = []
+        if dc_ac_clipping_suspected:
+            messages.append("Onduleur ou entrée PV proche de sa limite : un écrêtage/bridage PV est possible.")
+        elif ac_clipping_risk:
+            messages.append("Puissance PV proche de la limite AC 6 kW de l'onduleur.")
+        elif pv_dc_usable_clipping_risk:
+            messages.append("Puissance DC proche de la limite PV utilisable 9,6 kW de l'onduleur.")
+
+        if battery_charge_limited and pv_ac > load:
+            messages.append("Charge batterie proche de sa limite ou batterie presque pleine : privilégier les usages flexibles.")
+
+        if export_limited and pv_ac > load and battery_charge_limited:
+            messages.append("Réinjection réseau limitée : risque de bridage si aucun usage local n'est lancé.")
+        elif export_limited and curtailment_risk:
+            messages.append("Réinjection réseau limitée : surplus solaire prévu supérieur à la capacité d'absorption maison + batterie.")
+
+        return {
+            "ac_headroom_kw": self._safe_round(ac_headroom_kw, 2),
+            "battery_charge_headroom_kw": self._safe_round(battery_charge_headroom_kw, 2),
+            "export_headroom_kw": self._safe_round(export_headroom_kw, 2),
+            "usable_without_curtailment_kw": self._safe_round(usable_without_curtailment_kw, 2),
+            "effective_flexible_load_kw": self._safe_round(effective_flexible_load_kw, 2),
+            "ac_clipping_risk": ac_clipping_risk,
+            "pv_dc_usable_clipping_risk": pv_dc_usable_clipping_risk,
+            "dc_ac_clipping_suspected": dc_ac_clipping_suspected,
+            "battery_charge_limited": battery_charge_limited,
+            "export_limited": export_limited,
+            "curtailment_risk": curtailment_risk,
+            "messages": messages,
+        }
+
     # -------------------------------------------------------------------------
     # PV diagnostics and energy advice
     # -------------------------------------------------------------------------
@@ -558,7 +656,7 @@ class AiEngine:
     def _build_advice(self, tempo_today, tempo_tomorrow, battery_soc, pv_power, load_power, grid_power,
                       pv_forecast_kw, habit_load_now, habit_load_next_6h, predicted_pv_next_6h_kwh,
                       predicted_load_next_6h_kwh, estimated_autonomy_h, estimated_full_h,
-                      pv_string_analysis, weather_context):
+                      pv_string_analysis, weather_context, power_limits_analysis):
         advice = []
         priority = 0
         pv_string_priority = pv_string_analysis.get("pv_string_priority", 0)
@@ -570,6 +668,7 @@ class AiEngine:
         next_hours_good_for_load = (
             predicted_surplus_6h >= self.flexible_load_min_surplus_kw * self.flexible_load_min_duration_h
             or (current_surplus >= self.flexible_load_min_surplus_kw and pv_forecast_kw > habit_load_next_6h)
+            or (isinstance(power_limits_analysis, dict) and power_limits_analysis.get("curtailment_risk"))
         )
 
         if pv_string_status in ["CRITICAL", "WARNING"]:
@@ -578,6 +677,17 @@ class AiEngine:
         elif pv_string_status == "WATCH":
             advice.append(pv_string_alert)
             priority = max(priority, 3)
+
+        limit_messages = power_limits_analysis.get("messages", []) if isinstance(power_limits_analysis, dict) else []
+        for message in limit_messages[:2]:
+            advice.append(message)
+            priority = max(priority, 4)
+
+        if isinstance(power_limits_analysis, dict) and power_limits_analysis.get("curtailment_risk"):
+            flex_kw = power_limits_analysis.get("effective_flexible_load_kw", 0.0)
+            if flex_kw >= 0.8 and tempo_today != 3:
+                advice.append(f"Surplus possiblement bridé : lancer environ {flex_kw} kW d'usages flexibles peut améliorer l'autoconsommation.")
+                priority = max(priority, 5)
 
         if tempo_tomorrow == 3:
             advice.append("Demain sera rouge : viser une batterie haute ce soir et activer Veille HC la nuit pour eviter de vider la batterie en heures creuses.")
@@ -677,6 +787,15 @@ class AiEngine:
             weather_context = self._get_weather_context()
             pv_string_analysis = self._analyze_pv_strings(pv1_power, pv2_power, pv_total_dc_power, pv_power, weather_context)
             pv_forecast_kw = self._estimate_pv_forecast(pv_power, weather_context)
+            power_limits_analysis = self._analyze_power_limits(
+                pv_power=pv_power,
+                pv_total_dc_power=pv_total_dc_power,
+                load_power=load_power,
+                battery_power=battery_power,
+                grid_power=grid_power,
+                battery_soc=battery_soc,
+                pv_expected_kw=pv_string_analysis.get("pv_expected_kw", pv_forecast_kw),
+            )
             habit_load_now = self._average_load_for_hour(datetime.now().hour)
             habit_load_next_6h = self._average_load_next_hours(6)
             predicted_load_next_6h_kwh = self._average_energy_next_hours("load_power", 6)
@@ -692,7 +811,7 @@ class AiEngine:
                 pv_forecast_kw, habit_load_now, habit_load_next_6h,
                 predicted_pv_next_6h_kwh, predicted_load_next_6h_kwh,
                 estimated_autonomy_h, estimated_full_h,
-                pv_string_analysis, weather_context,
+                pv_string_analysis, weather_context, power_limits_analysis,
             )
 
             if priority >= 6:
@@ -705,12 +824,19 @@ class AiEngine:
             predicted_surplus_6h = self._safe_round(predicted_pv_next_6h_kwh - predicted_load_next_6h_kwh, 2)
             pv_expected_kw = pv_string_analysis.get("pv_expected_kw", 0.0)
             pv_perf_pct = pv_string_analysis.get("pv_performance_ratio_pct", 0.0)
+            limit_note = ""
+            if power_limits_analysis.get("curtailment_risk"):
+                limit_note = f" Limite injection/charge : {power_limits_analysis.get('effective_flexible_load_kw', 0)} kW flexibles utiles."
+            elif power_limits_analysis.get("ac_clipping_risk"):
+                limit_note = " Onduleur proche limite AC."
+
             prediction = (
                 f"{energy_mode}. Meteo: {weather_context.get('label')}. "
                 f"PV prevu maintenant: {pv_forecast_kw} kW. "
                 f"Modele PV: {pv_expected_kw} kW / performance {pv_perf_pct} %. "
                 f"Bilan estime 6 h: {predicted_surplus_6h} kWh. "
                 f"Autonomie estimee: {estimated_autonomy_h} h."
+                f"{limit_note}"
             )
 
             if tempo_tomorrow == 3 and battery_soc < self.red_day_target_soc:
@@ -753,6 +879,18 @@ class AiEngine:
                 "pv2_performance_ratio_pct": pv_string_analysis.get("pv2_performance_ratio_pct"),
                 "solar_elevation_deg": pv_string_analysis.get("solar_elevation_deg"),
                 "solar_array_azimuth_deg": pv_string_analysis.get("solar_array_azimuth_deg"),
+                "pv_ac_limit_kw": INVERTER_AC_POWER_LIMIT_KW,
+                "battery_charge_limit_kw": BATTERY_CHARGE_LIMIT_KW,
+                "grid_export_limit_kw": GRID_EXPORT_LIMIT_KW,
+                "pv_ac_headroom_kw": power_limits_analysis.get("ac_headroom_kw"),
+                "battery_charge_headroom_kw": power_limits_analysis.get("battery_charge_headroom_kw"),
+                "grid_export_headroom_kw": power_limits_analysis.get("export_headroom_kw"),
+                "pv_flexible_load_recommended_kw": power_limits_analysis.get("effective_flexible_load_kw"),
+                "pv_curtailment_risk": bool(power_limits_analysis.get("curtailment_risk")),
+                "pv_ac_clipping_risk": bool(power_limits_analysis.get("ac_clipping_risk")),
+                "pv_dc_usable_clipping_risk": bool(power_limits_analysis.get("pv_dc_usable_clipping_risk")),
+                "pv_dc_usable_limit_kw": PV_DC_USABLE_LIMIT_KW,
+                "pv_dc_recommended_max_kw": PV_DC_RECOMMENDED_MAX_KW,
             }
         except Exception as error:
             print("AI engine error:", error, flush=True)

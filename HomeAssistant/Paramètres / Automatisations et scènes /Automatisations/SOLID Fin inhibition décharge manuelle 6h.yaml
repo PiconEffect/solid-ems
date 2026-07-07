@@ -1,0 +1,29 @@
+alias: SOLID Fin inhibition décharge manuelle 6h
+description: ""
+triggers:
+  - entity_id: input_boolean.solid_inhibition_decharge_manuelle
+    to: "on"
+    for:
+      hours: 6
+    trigger: state
+conditions:
+  - condition: state
+    entity_id: input_select.solid_duree_inhibition_decharge
+    state: "6"
+actions:
+  - target:
+      entity_id: input_boolean.solid_inhibition_decharge_manuelle
+    action: input_boolean.turn_off
+  - data:
+      topic: solid/command/battery_discharge_inhibit
+      retain: false
+      payload: |
+        {
+          "source": "homeassistant",
+          "mode": "manual",
+          "enabled": false,
+          "action": "restore_inhibit_plan",
+          "reason": "timeout_6h"
+        }
+    action: mqtt.publish
+mode: single

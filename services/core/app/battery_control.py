@@ -906,12 +906,16 @@ class BatteryControl:
             self.dry_run_apply_inhibit_plan()
             return
 
+        # Les boutons HA actuels envoient encore apply_inhibit_plan / restore_inhibit_plan.
+        # On conserve le payload MQTT et on redirige vers la nouvelle logique validée.
         if action == "apply_inhibit_plan":
-            self.apply_inhibit_plan()
+            effective_mode = str(command.get("reason") or mode or "manual")
+            self.inhibit_discharge(mode=effective_mode, duration_h=duration_h)
             return
 
         if action == "restore_inhibit_plan":
-            self.restore_inhibit_plan()
+            effective_mode = str(command.get("reason") or mode or "manual")
+            self.resume_discharge(mode=effective_mode)
             return
 
         if action == "arm_inhibit_discharge":
@@ -1002,8 +1006,9 @@ class BatteryControl:
 
     def _read_inhibit_slots_status(self):
         status = {}
+        cids = [636, 6798, 5922, 5923, 5924, 5925, 5926, 5927, 5964, 5967, 5968, 5971, 5972, 5976, 5980, 5987]
 
-        for cid in [636, 6798, 5922, 5923, 5964, 5967, 5968, 5971]:
+        for cid in cids:
             try:
                 status[f"cid{cid}"] = self.read_cid(cid, attempts=3, delay_s=2)
             except Exception as error:
@@ -1066,7 +1071,7 @@ class BatteryControl:
         mode_text = str(mode or "").strip().lower()
         duration_text = str(duration_h or "").strip().lower()
 
-        # Bouton fixe 22h00 -> 06h00.
+        # Bouton fixe nuit : 22h00 -> 06h00.
         if mode_text in [
             "offpeak",
             "hc",
@@ -1079,7 +1084,12 @@ class BatteryControl:
             "22h00-6h",
             "22h00-06h00",
             "22:00-06:00",
+            "manual_22h00_6h",
+            "manual_22h_6h",
         ]:
+            return [("22:00", "00:00"), ("00:00", "06:00")]
+
+        if "offpeak" in mode_text or "veille" in mode_text or "hc" in mode_text:
             return [("22:00", "00:00"), ("00:00", "06:00")]
 
         if "22" in mode_text and ("6" in mode_text or "06" in mode_text):
@@ -1092,14 +1102,61 @@ class BatteryControl:
         if duration_text in ["12", "12.0", "12h"]:
             return self._build_segments_from_duration(12)
 
-        if mode_text in ["6h", "6 h", "duration_6h", "duree_6h"]:
+        if mode_text in ["6h", "6 h", "duration_6h", "duree_6h", "manual_6h", "manual6h", "inhibit_6h", "manual_6"]:
             return self._build_segments_from_duration(6)
 
-        if mode_text in ["12h", "12 h", "duration_12h", "duree_12h"]:
+        if mode_text in ["12h", "12 h", "duration_12h", "duree_12h", "manual_12h", "manual12h", "inhibit_12h", "manual_12"]:
             return self._build_segments_from_duration(12)
 
         # Par défaut : durée 6h depuis déclenchement.
         return self._build_segments_from_duration(6)
+
+    def _discharge_slot_defs(self):
+        return [
+            {"slot": 1, "switch": 5922, "time": 5964, "current": 5967},
+            {"slot": 2, "switch": 5923, "time": 5968, "current": 5971},
+            {"slot": 3, "switch": 5924, "time": 5972, "current": 5975},
+            {"slot": 4, "switch": 5925, "time": 5976, "current": 5979},
+            {"slot": 5, "switch": 5926, "time": 5980, "current": 5983},
+            {"slot": 6, "switch": 5927, "time": 5987, "current": 5986},
+        ]
+
+    def _reset_unused_discharge_slots(self, used_slot_count):
+        print(f"BATTERY CONTROL reset unused discharge slots used_slot_count={used_slot_count}", flush=True)
+
+        for slot in self._discharge_slot_defs()[used_slot_count:]:
+            self._write_cid_with_readback(
+                cid=slot["switch"],
+                value="0",
+                description=f"Disable Discharge Slot {slot['slot']}",
+                delay_s=8,
+            )
+
+            self._write_cid_with_readback(
+                cid=slot["time"],
+                value="00:00-00:00",
+                description=f"Set Discharge Slot {slot['slot']} inactive time",
+                delay_s=8,
+            )
+
+    def _reset_all_discharge_slots(self):
+        print("BATTERY CONTROL reset all discharge slots", flush=True)
+
+        for slot in self._discharge_slot_defs():
+            self._write_cid_with_readback(
+                cid=slot["switch"],
+                value="0",
+                description=f"Disable Discharge Slot {slot['slot']}",
+                delay_s=8,
+            )
+
+        for slot in self._discharge_slot_defs():
+            self._write_cid_with_readback(
+                cid=slot["time"],
+                value="00:00-00:00",
+                description=f"Set Discharge Slot {slot['slot']} inactive time",
+                delay_s=8,
+            )
 
     def _apply_discharge_inhibit_segments(self, segments):
         print(f"BATTERY CONTROL apply discharge inhibit segments={segments}", flush=True)
@@ -1112,72 +1169,39 @@ class BatteryControl:
             print("BATTERY CONTROL inhibit blocked: more than 2 segments not supported", flush=True)
             return None
 
+        # 1 - Toujours forcer Self-Use avant écriture des slots.
         self._force_self_use_individual()
 
-        # Si un seul slot est nécessaire, on désactive proprement le slot 2.
-        if len(segments) == 1:
+        # 2 - Remettre à zéro tous les slots de décharge non utilisés.
+        self._reset_unused_discharge_slots(used_slot_count=len(segments))
+
+        # 3 - Configurer les slots utilisés : horaire puis courant 0 A.
+        slot_defs = self._discharge_slot_defs()
+        for idx, segment in enumerate(segments):
+            slot = slot_defs[idx]
+            start_hhmm, end_hhmm = segment
+
             self._write_cid_with_readback(
-                cid=5923,
+                cid=slot["time"],
+                value=f"{start_hhmm}-{end_hhmm}",
+                description=f"Set Discharge Slot {slot['slot']} inhibit time {start_hhmm}-{end_hhmm}",
+                delay_s=8,
+            )
+
+            self._write_cid_with_readback(
+                cid=slot["current"],
                 value="0",
-                description="Disable Discharge Slot 2",
+                description=f"Set Discharge Slot {slot['slot']} current 0A",
                 delay_s=8,
             )
 
+        # 4 - Activer les switches seulement après horaires + courants.
+        for idx in range(len(segments)):
+            slot = slot_defs[idx]
             self._write_cid_with_readback(
-                cid=5968,
-                value="00:00-00:00",
-                description="Set Discharge Slot 2 inactive time",
-                delay_s=8,
-            )
-
-        # Slot 1.
-        s1_start, s1_end = segments[0]
-
-        self._write_cid_with_readback(
-            cid=5964,
-            value=f"{s1_start}-{s1_end}",
-            description=f"Set Discharge Slot 1 inhibit time {s1_start}-{s1_end}",
-            delay_s=8,
-        )
-
-        self._write_cid_with_readback(
-            cid=5967,
-            value="0",
-            description="Set Discharge Slot 1 current 0A",
-            delay_s=8,
-        )
-
-        # Slot 2 si chevauchement minuit.
-        if len(segments) == 2:
-            s2_start, s2_end = segments[1]
-
-            self._write_cid_with_readback(
-                cid=5968,
-                value=f"{s2_start}-{s2_end}",
-                description=f"Set Discharge Slot 2 inhibit time {s2_start}-{s2_end}",
-                delay_s=8,
-            )
-
-            self._write_cid_with_readback(
-                cid=5971,
-                value="0",
-                description="Set Discharge Slot 2 current 0A",
-                delay_s=8,
-            )
-
-        # Activation des switches seulement après horaires + courants.
-        self._write_cid_with_readback(
-            cid=5922,
-            value="1",
-            description="Enable Discharge Slot 1",
-            delay_s=8,
-        )
-
-        if len(segments) == 2:
-            self._write_cid_with_readback(
-                cid=5923,
+                cid=slot["switch"],
                 value="1",
-                description="Enable Discharge Slot 2",
+                description=f"Enable Discharge Slot {slot['slot']}",
                 delay_s=8,
             )
 
@@ -1189,35 +1213,7 @@ class BatteryControl:
 
         # Ne pas restaurer arbitrairement les courants.
         # Si switch OFF ou créneau 00:00-00:00, le courant du slot est non pertinent.
-
-        self._write_cid_with_readback(
-            cid=5922,
-            value="0",
-            description="Disable Discharge Slot 1",
-            delay_s=8,
-        )
-
-        self._write_cid_with_readback(
-            cid=5923,
-            value="0",
-            description="Disable Discharge Slot 2",
-            delay_s=8,
-        )
-
-        self._write_cid_with_readback(
-            cid=5964,
-            value="00:00-00:00",
-            description="Set Discharge Slot 1 inactive time",
-            delay_s=8,
-        )
-
-        self._write_cid_with_readback(
-            cid=5968,
-            value="00:00-00:00",
-            description="Set Discharge Slot 2 inactive time",
-            delay_s=8,
-        )
-
+        self._reset_all_discharge_slots()
         self._force_self_use_individual()
 
         time.sleep(10)

@@ -958,60 +958,291 @@ class BatteryControl:
 
         print("BATTERY CONTROL unsupported command:", command, flush=True)
 
-    def inhibit_discharge(self, mode="manual", duration_h=None):
-        print(f"BATTERY CONTROL inhibit discharge requested mode={mode} duration_h={duration_h}", flush=True)
+    # -------------------------------------------------------------------------
+    # Nouvelle logique validée en réel - inhibition décharge via CIDs individuels
+    # -------------------------------------------------------------------------
 
-        if not self.validation_done:
-            self.validate_solis_charge_discharge_settings(force=True)
-
-        if not self.last_6972_value:
-            print("BATTERY CONTROL inhibit blocked: no valid CID 6972 backup available", flush=True)
-            return
-
-        new_value = self.build_inhibit_6972_value(self.last_6972_value)
-
-        if not new_value:
-            print("BATTERY CONTROL inhibit blocked: unable to build safe CID 6972 value", flush=True)
-            return
+    def _write_cid_with_readback(self, cid, value, description, delay_s=8):
+        current = self.read_cid(cid, attempts=3, delay_s=2)
+        print(f"BATTERY CONTROL CID{cid} BEFORE = {current}", flush=True)
 
         payload = {
-            "cid": str(self.cid_charge_discharge_one_cid),
+            "description": description,
+            "cid": str(cid),
             "inverterSn": self.inverter_sn,
-            "value": new_value,
-            "yuanzhi": self.last_6972_value,
+            "value": str(value),
+            "yuanzhi": str(current),
             "language": self.language,
         }
 
-        result = self._execute_control_payload(payload, "Legacy inhibit discharge CID 6972")
+        result = self._execute_control_payload(payload, description)
+        print(f"BATTERY CONTROL WRITE CID{cid} RESULT = {result}", flush=True)
 
-        if isinstance(result, dict) and result.get("success") is False:
-            print("BATTERY CONTROL inhibit failed", flush=True)
-            return
+        time.sleep(delay_s)
 
-        self.active_6972_value = new_value
-        print("BATTERY CONTROL inhibit completed", flush=True)
+        after = self.read_cid(cid, attempts=3, delay_s=2)
+        print(f"BATTERY CONTROL CID{cid} AFTER = {after}", flush=True)
+
+        if str(after) != str(value):
+            print(
+                f"BATTERY CONTROL WARNING CID{cid}: expected={value} readback={after}",
+                flush=True,
+            )
+
+        return result, after
+
+    def _force_self_use_individual(self):
+        print("BATTERY CONTROL force Self-Use using CID636=1", flush=True)
+        return self._write_cid_with_readback(
+            cid=636,
+            value="1",
+            description="Force Self-Use",
+            delay_s=10,
+        )
+
+    def _read_inhibit_slots_status(self):
+        status = {}
+
+        for cid in [636, 6798, 5922, 5923, 5964, 5967, 5968, 5971]:
+            try:
+                status[f"cid{cid}"] = self.read_cid(cid, attempts=3, delay_s=2)
+            except Exception as error:
+                status[f"cid{cid}"] = f"ERROR: {error}"
+
+        print("BATTERY CONTROL inhibit slots status:", status, flush=True)
+        return status
+
+    def _now_local(self):
+        try:
+            from zoneinfo import ZoneInfo
+            return datetime.now(ZoneInfo("Europe/Paris"))
+        except Exception:
+            return datetime.now().astimezone()
+
+    def _format_hhmm(self, dt_value):
+        return dt_value.strftime("%H:%M")
+
+    def _build_segments_from_times(self, start_hhmm, end_hhmm):
+        if start_hhmm == end_hhmm:
+            return [("00:00", "23:59")]
+
+        if start_hhmm < end_hhmm:
+            return [(start_hhmm, end_hhmm)]
+
+        return [
+            (start_hhmm, "00:00"),
+            ("00:00", end_hhmm),
+        ]
+
+    def _build_segments_from_duration(self, duration_h):
+        from datetime import timedelta
+
+        try:
+            duration = float(duration_h)
+        except Exception:
+            duration = 6.0
+
+        if duration <= 0:
+            duration = 6.0
+
+        if duration > 24:
+            duration = 24.0
+
+        start_dt = self._now_local()
+        end_dt = start_dt + timedelta(hours=duration)
+
+        start_hhmm = self._format_hhmm(start_dt)
+        end_hhmm = self._format_hhmm(end_dt)
+
+        print(
+            f"BATTERY CONTROL duration inhibit computed: "
+            f"duration_h={duration} start={start_hhmm} end={end_hhmm}",
+            flush=True,
+        )
+
+        return self._build_segments_from_times(start_hhmm, end_hhmm)
+
+    def _select_inhibit_segments(self, mode=None, duration_h=None):
+        mode_text = str(mode or "").strip().lower()
+        duration_text = str(duration_h or "").strip().lower()
+
+        # Bouton fixe 22h00 -> 06h00.
+        if mode_text in [
+            "offpeak",
+            "hc",
+            "veille_hc",
+            "veille hc",
+            "night",
+            "nuit",
+            "22h",
+            "22h-6h",
+            "22h00-6h",
+            "22h00-06h00",
+            "22:00-06:00",
+        ]:
+            return [("22:00", "00:00"), ("00:00", "06:00")]
+
+        if "22" in mode_text and ("6" in mode_text or "06" in mode_text):
+            return [("22:00", "00:00"), ("00:00", "06:00")]
+
+        # Boutons durée depuis déclenchement.
+        if duration_text in ["6", "6.0", "6h"]:
+            return self._build_segments_from_duration(6)
+
+        if duration_text in ["12", "12.0", "12h"]:
+            return self._build_segments_from_duration(12)
+
+        if mode_text in ["6h", "6 h", "duration_6h", "duree_6h"]:
+            return self._build_segments_from_duration(6)
+
+        if mode_text in ["12h", "12 h", "duration_12h", "duree_12h"]:
+            return self._build_segments_from_duration(12)
+
+        # Par défaut : durée 6h depuis déclenchement.
+        return self._build_segments_from_duration(6)
+
+    def _apply_discharge_inhibit_segments(self, segments):
+        print(f"BATTERY CONTROL apply discharge inhibit segments={segments}", flush=True)
+
+        if not segments:
+            print("BATTERY CONTROL inhibit blocked: empty segments", flush=True)
+            return None
+
+        if len(segments) > 2:
+            print("BATTERY CONTROL inhibit blocked: more than 2 segments not supported", flush=True)
+            return None
+
+        self._force_self_use_individual()
+
+        # Si un seul slot est nécessaire, on désactive proprement le slot 2.
+        if len(segments) == 1:
+            self._write_cid_with_readback(
+                cid=5923,
+                value="0",
+                description="Disable Discharge Slot 2",
+                delay_s=8,
+            )
+
+            self._write_cid_with_readback(
+                cid=5968,
+                value="00:00-00:00",
+                description="Set Discharge Slot 2 inactive time",
+                delay_s=8,
+            )
+
+        # Slot 1.
+        s1_start, s1_end = segments[0]
+
+        self._write_cid_with_readback(
+            cid=5964,
+            value=f"{s1_start}-{s1_end}",
+            description=f"Set Discharge Slot 1 inhibit time {s1_start}-{s1_end}",
+            delay_s=8,
+        )
+
+        self._write_cid_with_readback(
+            cid=5967,
+            value="0",
+            description="Set Discharge Slot 1 current 0A",
+            delay_s=8,
+        )
+
+        # Slot 2 si chevauchement minuit.
+        if len(segments) == 2:
+            s2_start, s2_end = segments[1]
+
+            self._write_cid_with_readback(
+                cid=5968,
+                value=f"{s2_start}-{s2_end}",
+                description=f"Set Discharge Slot 2 inhibit time {s2_start}-{s2_end}",
+                delay_s=8,
+            )
+
+            self._write_cid_with_readback(
+                cid=5971,
+                value="0",
+                description="Set Discharge Slot 2 current 0A",
+                delay_s=8,
+            )
+
+        # Activation des switches seulement après horaires + courants.
+        self._write_cid_with_readback(
+            cid=5922,
+            value="1",
+            description="Enable Discharge Slot 1",
+            delay_s=8,
+        )
+
+        if len(segments) == 2:
+            self._write_cid_with_readback(
+                cid=5923,
+                value="1",
+                description="Enable Discharge Slot 2",
+                delay_s=8,
+            )
+
+        time.sleep(10)
+        return self._read_inhibit_slots_status()
+
+    def _disable_discharge_inhibit_individual(self):
+        print("BATTERY CONTROL disable discharge inhibit using individual CIDs", flush=True)
+
+        # Ne pas restaurer arbitrairement les courants.
+        # Si switch OFF ou créneau 00:00-00:00, le courant du slot est non pertinent.
+
+        self._write_cid_with_readback(
+            cid=5922,
+            value="0",
+            description="Disable Discharge Slot 1",
+            delay_s=8,
+        )
+
+        self._write_cid_with_readback(
+            cid=5923,
+            value="0",
+            description="Disable Discharge Slot 2",
+            delay_s=8,
+        )
+
+        self._write_cid_with_readback(
+            cid=5964,
+            value="00:00-00:00",
+            description="Set Discharge Slot 1 inactive time",
+            delay_s=8,
+        )
+
+        self._write_cid_with_readback(
+            cid=5968,
+            value="00:00-00:00",
+            description="Set Discharge Slot 2 inactive time",
+            delay_s=8,
+        )
+
+        self._force_self_use_individual()
+
+        time.sleep(10)
+        return self._read_inhibit_slots_status()
+
+    def inhibit_discharge(self, mode="manual", duration_h=None):
+        print(f"BATTERY CONTROL inhibit discharge requested mode={mode} duration_h={duration_h}", flush=True)
+
+        segments = self._select_inhibit_segments(mode=mode, duration_h=duration_h)
+
+        print(f"BATTERY CONTROL selected inhibit segments = {segments}", flush=True)
+
+        status = self._apply_discharge_inhibit_segments(segments)
+
+        self.active_6972_value = None
+        print("BATTERY CONTROL inhibit completed using individual CIDs", flush=True)
+
+        return status
 
     def resume_discharge(self, mode="manual"):
         print(f"BATTERY CONTROL resume discharge requested mode={mode}", flush=True)
 
-        if not self.last_6972_value:
-            print("BATTERY CONTROL restore skipped: no valid CID 6972 backup available", flush=True)
-            return
-
-        current_yuanzhi = self.active_6972_value or self.last_6972_value
-        payload = {
-            "cid": str(self.cid_charge_discharge_one_cid),
-            "inverterSn": self.inverter_sn,
-            "value": self.last_6972_value,
-            "yuanzhi": current_yuanzhi,
-            "language": self.language,
-        }
-
-        result = self._execute_control_payload(payload, "Legacy resume discharge CID 6972")
-
-        if isinstance(result, dict) and result.get("success") is False:
-            print("BATTERY CONTROL restore failed", flush=True)
-            return
+        status = self._disable_discharge_inhibit_individual()
 
         self.active_6972_value = None
-        print("BATTERY CONTROL restore completed", flush=True)
+        print("BATTERY CONTROL resume completed using individual CIDs", flush=True)
+
+        return status

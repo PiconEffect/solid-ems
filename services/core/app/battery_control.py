@@ -1,3 +1,4 @@
+
 import base64
 import hashlib
 import hmac
@@ -705,10 +706,20 @@ class BatteryControl:
             self.offpeak_last_command = dict(command)
             if armed:
                 print(f"BATTERY CONTROL armed for off-peak window {self.offpeak_window_start}-{self.offpeak_window_end}", flush=True)
-                if self.auto_validate and not self.validation_done:
-                    self.validate_solis_charge_discharge_settings(force=False)
+
+                # Bouton HC / Veille HC : le payload HA arme la fenetre via
+                # action=arm_inhibit_discharge, mode=offpeak, armed=True.
+                # On conserve ce payload et on applique immediatement la logique validee
+                # en reel : 22:00-00:00 + 00:00-06:00, courant decharge 0 A.
+                self.inhibit_discharge(
+                    mode=str(command.get("reason") or mode or "offpeak"),
+                    duration_h=None,
+                )
             else:
                 print(f"BATTERY CONTROL disarmed for off-peak window {self.offpeak_window_start}-{self.offpeak_window_end}", flush=True)
+
+                # Desarmement HC = reprise decharge / reset de tous les slots decharge.
+                self.resume_discharge(mode=str(command.get("reason") or mode or "offpeak"))
             return
         if action == "inhibit_discharge":
             self.inhibit_discharge(mode=mode, duration_h=duration_h)

@@ -1,0 +1,48 @@
+alias: SOLID Toggle inhibition décharge manuelle
+mode: restart
+sequence:
+  - choose:
+      - conditions:
+          - condition: state
+            entity_id: input_boolean.solid_inhibition_decharge_manuelle
+            state: "on"
+        sequence:
+          - data:
+              topic: solid/command/battery_discharge_inhibit
+              qos: 0
+              retain: false
+              payload: |
+                {
+                  "source": "homeassistant",
+                  "mode": "manual",
+                  "enabled": false,
+                  "action": "restore_inhibit_plan",
+                  "reason": "manual_cancel"
+                }
+            action: mqtt.publish
+          - target:
+              entity_id: input_boolean.solid_inhibition_decharge_manuelle
+            action: input_boolean.turn_off
+    default:
+      - target:
+          entity_id: input_select.solid_duree_inhibition_decharge
+        data:
+          option: "6"
+        action: input_select.select_option
+      - target:
+          entity_id: input_boolean.solid_inhibition_decharge_manuelle
+        action: input_boolean.turn_on
+      - data:
+          topic: solid/command/battery_discharge_inhibit
+          qos: 0
+          retain: false
+          payload: |
+            {
+              "source": "homeassistant",
+              "mode": "manual",
+              "enabled": true,
+              "duration_h": 6,
+              "action": "apply_inhibit_plan",
+              "reason": "manual_6h"
+            }
+        action: mqtt.publish

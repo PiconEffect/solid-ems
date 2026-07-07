@@ -1,4 +1,3 @@
-
 import base64
 import hashlib
 import hmac
@@ -50,6 +49,7 @@ class BatteryControl:
         self.validation_retry_interval_s = 300
         self.last_mode_values = {}
 
+        # Etat interne Veille HC / off-peak.
         self.offpeak_inhibit_armed = False
         self.offpeak_window_start = "22:00"
         self.offpeak_window_end = "06:00"
@@ -127,12 +127,14 @@ class BatteryControl:
         body = json.dumps(payload)
         date = self._now_gmt()
         md5_value, signature = self._sign(body, date, endpoint)
+
         headers = {
             "Content-MD5": md5_value,
             "Content-Type": self.content_type,
             "Date": date,
             "Authorization": f"API {self.key_id}:{signature}",
         }
+
         if token:
             headers["Token"] = token
 
@@ -144,14 +146,17 @@ class BatteryControl:
                 data=body,
                 timeout=20,
             )
+
             if response.status_code != 200:
                 print(f"BATTERY CONTROL HTTP {response.status_code}: {response.text}", flush=True)
                 return None
+
             try:
                 return response.json()
             except Exception:
                 print(f"BATTERY CONTROL invalid JSON response: {response.text}", flush=True)
                 return None
+
         except Exception as error:
             print("BATTERY CONTROL HTTP ERROR:", error, flush=True)
             return None
@@ -166,11 +171,16 @@ class BatteryControl:
             return self.token
 
         md5_password = hashlib.md5(self.password.encode("utf-8")).hexdigest()
-        payload = {"userInfo": self.user_name, "passWord": md5_password}
+        payload = {
+            "userInfo": self.user_name,
+            "passWord": md5_password,
+        }
+
         data = self._post("/v2/api/login", payload)
         if not data:
             print("BATTERY CONTROL login failed: no response", flush=True)
             return None
+
         if not data.get("success"):
             print("BATTERY CONTROL login failed:", data, flush=True)
             return None
@@ -180,6 +190,7 @@ class BatteryControl:
         if isinstance(body, dict):
             token = body.get("token") or body.get("Token") or body.get("accessToken") or body.get("access_token")
         token = token or data.get("token") or data.get("Token")
+
         if not token:
             print("BATTERY CONTROL login failed: token not found in response", flush=True)
             print("BATTERY CONTROL login response:", data, flush=True)
@@ -193,14 +204,17 @@ class BatteryControl:
     def _extract_read_value(self, response):
         if not isinstance(response, dict):
             return None
+
         data = response.get("data")
         if isinstance(data, dict):
             for key in ["msg", "value", "result", "data"]:
                 if key in data and data.get(key) is not None:
                     return str(data.get(key))
+
         for key in ["msg", "value", "result"]:
             if key in response and response.get(key) is not None:
                 return str(response.get(key))
+
         return None
 
     def _is_error_value(self, value):
@@ -269,9 +283,11 @@ class BatteryControl:
         if self._is_error_value(value):
             return False
         parts = [p.strip() for p in str(value).split(",")]
+
         if len(parts) != 60:
             print(f"BATTERY CONTROL CID 6972 invalid field count: {len(parts)} expected 60", flush=True)
             return False
+
         for group_index in range(12):
             base = group_index * 5
             switch_value = parts[base]
@@ -282,19 +298,26 @@ class BatteryControl:
             if not self._looks_like_time_slot(time_slot):
                 print(f"BATTERY CONTROL CID 6972 invalid time slot in group {group_index + 1}: {time_slot}", flush=True)
                 return False
+
         return True
 
     def read_cid_once(self, cid):
         if not self.inverter_sn:
             print(f"BATTERY CONTROL read CID {cid} skipped: missing inverter SN", flush=True)
             return None
+
         self._throttle_read()
-        payload = {"inverterSn": self.inverter_sn, "cid": int(cid)}
+        payload = {
+            "inverterSn": self.inverter_sn,
+            "cid": int(cid),
+        }
         response = self._post("/v2/api/atRead", payload)
         value = self._extract_read_value(response)
+
         if self._is_error_value(value):
             print(f"BATTERY CONTROL read CID {cid} returned invalid/error value: {value}", flush=True)
             return None
+
         print(f"BATTERY CONTROL read CID {cid} = {value}", flush=True)
         return value
 
@@ -308,6 +331,7 @@ class BatteryControl:
             last_value = value
             if attempt < attempts:
                 time.sleep(delay_s)
+
         print(f"BATTERY CONTROL read CID {cid} failed after {attempts} attempts. Last value={last_value}", flush=True)
         return None
 
@@ -316,6 +340,7 @@ class BatteryControl:
         if not self.inverter_sn:
             print("BATTERY CONTROL mode validation skipped: missing inverter SN", flush=True)
             return False
+
         values = {}
         for cid, description in self.mode_cids.items():
             value = self.read_cid(cid, attempts=3, delay_s=2)
@@ -324,24 +349,58 @@ class BatteryControl:
                 print(f"BATTERY CONTROL mode CID {cid} ({description}) = UNREADABLE", flush=True)
             else:
                 print(f"BATTERY CONTROL mode CID {cid} ({description}) = {value}", flush=True)
+
         self.last_mode_values = values
         print("BATTERY CONTROL mode validation summary:", values, flush=True)
         return True
 
     def _build_mode_candidate_payloads(self):
-        candidates = []
         cid_636 = self.last_mode_values.get("636")
         cid_100 = self.last_mode_values.get("100")
         cid_543 = self.last_mode_values.get("543")
         cid_109 = self.last_mode_values.get("109")
+        candidates = []
+
         if cid_636 is not None:
-            candidates.append({"description": "Keep Storage Inverters Control Switching unchanged", "cid": "636", "inverterSn": self.inverter_sn, "value": str(cid_636), "yuanzhi": str(cid_636), "language": self.language})
+            candidates.append({
+                "description": "Keep Storage Inverters Control Switching unchanged",
+                "cid": "636",
+                "inverterSn": self.inverter_sn,
+                "value": str(cid_636),
+                "yuanzhi": str(cid_636),
+                "language": self.language,
+            })
+
         if cid_100 is not None:
-            candidates.append({"description": "Candidate enable Time Of Use Select", "cid": "100", "inverterSn": self.inverter_sn, "value": "1", "yuanzhi": str(cid_100), "language": self.language})
+            candidates.append({
+                "description": "Candidate enable Time Of Use Select",
+                "cid": "100",
+                "inverterSn": self.inverter_sn,
+                "value": "1",
+                "yuanzhi": str(cid_100),
+                "language": self.language,
+            })
+
         if cid_109 is not None:
-            candidates.append({"description": "Keep Allow Grid Charging unchanged", "cid": "109", "inverterSn": self.inverter_sn, "value": str(cid_109), "yuanzhi": str(cid_109), "language": self.language})
+            candidates.append({
+                "description": "Keep Allow Grid Charging unchanged",
+                "cid": "109",
+                "inverterSn": self.inverter_sn,
+                "value": str(cid_109),
+                "yuanzhi": str(cid_109),
+                "language": self.language,
+            })
+
         if cid_543 is not None:
-            candidates.append({"description": "Candidate work mode / time-of-use mode review", "cid": "543", "inverterSn": self.inverter_sn, "value": str(cid_543), "yuanzhi": str(cid_543), "language": self.language})
+            candidates.append({
+                "description": "Candidate work mode / time-of-use mode review",
+                "cid": "543",
+                "inverterSn": self.inverter_sn,
+                "value": str(cid_543),
+                "yuanzhi": str(cid_543),
+                "language": self.language,
+            })
+
         return candidates
 
     def dry_run_mode_candidates(self):
@@ -349,33 +408,48 @@ class BatteryControl:
         if not self.inverter_sn:
             print("BATTERY CONTROL mode candidates skipped: missing inverter SN", flush=True)
             return False
+
         self.validate_modes()
         print("BATTERY CONTROL current mode values:", self.last_mode_values, flush=True)
         candidates = self._build_mode_candidate_payloads()
+
         if self.last_6972_value:
             inhibit_value = self.build_inhibit_6972_value(self.last_6972_value)
             if inhibit_value:
-                candidates.append({"description": "Candidate CID 6972 inhibit discharge value", "cid": str(self.cid_charge_discharge_one_cid), "inverterSn": self.inverter_sn, "value": inhibit_value, "yuanzhi": self.last_6972_value, "language": self.language})
+                candidates.append({
+                    "description": "Candidate CID 6972 inhibit discharge value",
+                    "cid": str(self.cid_charge_discharge_one_cid),
+                    "inverterSn": self.inverter_sn,
+                    "value": inhibit_value,
+                    "yuanzhi": self.last_6972_value,
+                    "language": self.language,
+                })
         else:
             print("BATTERY CONTROL mode candidates note: no CID 6972 backup available yet", flush=True)
+
         print("BATTERY CONTROL dry-run mode candidates:", flush=True)
         for candidate in candidates:
             print(f"BATTERY CONTROL MODE CANDIDATE - {candidate['description']}: {candidate}", flush=True)
+
         print("BATTERY CONTROL dry-run mode candidates completed - no Solis command sent", flush=True)
         return True
 
     def dry_run_apply_inhibit_plan(self):
         print("BATTERY CONTROL dry-run apply inhibit plan started", flush=True)
         apply_payloads, restore_payloads = self._build_inhibit_plan_payloads()
+
         if not apply_payloads or not restore_payloads:
             print("BATTERY CONTROL dry-run apply inhibit plan blocked: invalid payloads", flush=True)
             return False
+
         print("BATTERY CONTROL DRY-RUN APPLY PLAN - no Solis command sent", flush=True)
         for index, payload in enumerate(apply_payloads, start=1):
             print(f"BATTERY CONTROL APPLY STEP {index}: {payload}", flush=True)
+
         print("BATTERY CONTROL DRY-RUN RESTORE PLAN - no Solis command sent", flush=True)
         for index, payload in enumerate(restore_payloads, start=1):
             print(f"BATTERY CONTROL RESTORE STEP {index}: {payload}", flush=True)
+
         print("BATTERY CONTROL dry-run apply inhibit plan completed - no Solis command sent", flush=True)
         return True
 
@@ -383,108 +457,208 @@ class BatteryControl:
         if response is None:
             print("BATTERY CONTROL CONTROL RESPONSE INVALID: response is None", flush=True)
             return False
+
         if not isinstance(response, dict):
             print(f"BATTERY CONTROL CONTROL RESPONSE INVALID: response is not a dict: {response}", flush=True)
             return False
+
         top_code = response.get("code")
+
         if str(top_code) != "0":
             print(f"BATTERY CONTROL CONTROL RESPONSE INVALID: top-level code is not 0: {top_code}", flush=True)
             return False
+
         data = response.get("data")
+
         if not isinstance(data, list) or len(data) == 0:
             print(f"BATTERY CONTROL CONTROL RESPONSE INVALID: data is missing or empty: {data}", flush=True)
             return False
+
         first = data[0]
+
         if not isinstance(first, dict):
             print(f"BATTERY CONTROL CONTROL RESPONSE INVALID: first data item is not a dict: {first}", flush=True)
             return False
+
         inner_code = first.get("code")
+
         if str(inner_code) != "0":
             print(f"BATTERY CONTROL CONTROL RESPONSE INVALID: inner code is not 0: {inner_code}", flush=True)
             return False
+
         msg = str(first.get("msg", "")).lower()
+
         if "send success" not in msg and "success" not in msg:
             print(f"BATTERY CONTROL CONTROL RESPONSE WARNING: success text not found in msg: {first.get('msg')}", flush=True)
+
         print("BATTERY CONTROL CONTROL RESPONSE OK", flush=True)
         return True
 
     def _execute_control_payload(self, payload, description):
         print(f"BATTERY CONTROL EXECUTE REQUEST - {description}: {payload}", flush=True)
+
         if self.dry_run:
             print("BATTERY CONTROL DRY-RUN active: no Solis command sent", flush=True)
-            return {"success": True, "dry_run": True, "description": description, "payload": payload}
+            return {
+                "success": True,
+                "dry_run": True,
+                "description": description,
+                "payload": payload,
+            }
+
         if not self.allow_real_write:
             print("BATTERY CONTROL REAL WRITE BLOCKED: SOLIS_CONTROL_ALLOW_REAL_WRITE is not true", flush=True)
-            return {"success": False, "blocked": True, "description": description, "payload": payload}
+            return {
+                "success": False,
+                "blocked": True,
+                "description": description,
+                "payload": payload,
+            }
+
         if not self.enable_mode_plan:
             print("BATTERY CONTROL REAL WRITE BLOCKED: SOLIS_CONTROL_ENABLE_MODE_PLAN is not true", flush=True)
-            return {"success": False, "blocked": True, "description": description, "payload": payload}
+            return {
+                "success": False,
+                "blocked": True,
+                "description": description,
+                "payload": payload,
+            }
+
         if not self.inverter_sn:
             print("BATTERY CONTROL real write blocked: missing inverter SN", flush=True)
-            return {"success": False, "blocked": True, "reason": "missing inverter SN"}
+            return {
+                "success": False,
+                "blocked": True,
+                "reason": "missing inverter SN",
+            }
+
         token = self.login()
+
         if not token:
             print("BATTERY CONTROL real write blocked: no token", flush=True)
-            return {"success": False, "blocked": True, "reason": "no token"}
+            return {
+                "success": False,
+                "blocked": True,
+                "reason": "no token",
+            }
+
         response = self._post("/v2/api/control", payload, token=token)
         print(f"BATTERY CONTROL EXECUTE RESPONSE - {description}: {response}", flush=True)
+
         if not self._is_control_response_success(response):
             print(f"BATTERY CONTROL EXECUTE FAILED - {description}", flush=True)
-            return {"success": False, "failed": True, "description": description, "payload": payload, "response": response}
-        return {"success": True, "dry_run": False, "description": description, "payload": payload, "response": response}
+            return {
+                "success": False,
+                "failed": True,
+                "description": description,
+                "payload": payload,
+                "response": response,
+            }
+
+        return {
+            "success": True,
+            "dry_run": False,
+            "description": description,
+            "payload": payload,
+            "response": response,
+        }
 
     def _build_inhibit_plan_payloads(self):
         self.validate_modes()
         print("BATTERY CONTROL inhibit plan current mode values:", self.last_mode_values, flush=True)
+
         if not self.validation_done or not self.last_6972_value:
             print("BATTERY CONTROL inhibit plan requires CID 6972 backup, validating now", flush=True)
             self.validate_solis_charge_discharge_settings(force=True)
+
         if not self.last_6972_value:
             print("BATTERY CONTROL inhibit plan blocked: no valid CID 6972 backup available", flush=True)
             return None, None
+
         inhibit_6972_value = self.build_inhibit_6972_value(self.last_6972_value)
         if not inhibit_6972_value:
             print("BATTERY CONTROL inhibit plan blocked: unable to build CID 6972 inhibit value", flush=True)
             return None, None
+
         apply_payloads = []
         restore_payloads = []
+
         cid_636 = self.last_mode_values.get("636")
         cid_100 = self.last_mode_values.get("100")
         cid_109 = self.last_mode_values.get("109")
         cid_543 = self.last_mode_values.get("543")
+
         if cid_636 is not None:
             print(f"BATTERY CONTROL inhibit plan: CID 636 kept unchanged at {cid_636}", flush=True)
+
         if cid_100 is not None and str(cid_100) != "1":
-            apply_payloads.append({"description": "Enable Time Of Use Select", "cid": "100", "inverterSn": self.inverter_sn, "value": "1", "yuanzhi": str(cid_100), "language": self.language})
-            restore_payloads.insert(0, {"description": "Restore Time Of Use Select", "cid": "100", "inverterSn": self.inverter_sn, "value": str(cid_100), "yuanzhi": "1", "language": self.language})
+            apply_payloads.append({
+                "description": "Enable Time Of Use Select",
+                "cid": "100",
+                "inverterSn": self.inverter_sn,
+                "value": "1",
+                "yuanzhi": str(cid_100),
+                "language": self.language,
+            })
+            restore_payloads.insert(0, {
+                "description": "Restore Time Of Use Select",
+                "cid": "100",
+                "inverterSn": self.inverter_sn,
+                "value": str(cid_100),
+                "yuanzhi": "1",
+                "language": self.language,
+            })
         elif cid_100 is not None:
             print("BATTERY CONTROL inhibit plan: CID 100 already enabled, no TOU write required", flush=True)
+
         if cid_109 is not None:
             print(f"BATTERY CONTROL inhibit plan: CID 109 kept unchanged at {cid_109}", flush=True)
+
         if cid_543 is not None:
             print(f"BATTERY CONTROL inhibit plan: CID 543 kept unchanged at {cid_543}", flush=True)
+
         if inhibit_6972_value == self.last_6972_value:
             print("BATTERY CONTROL inhibit plan: CID 6972 unchanged, skipping apply and restore write", flush=True)
         else:
-            apply_payloads.append({"description": "Apply CID 6972 inhibit discharge value", "cid": str(self.cid_charge_discharge_one_cid), "inverterSn": self.inverter_sn, "value": inhibit_6972_value, "yuanzhi": self.last_6972_value, "language": self.language})
-            restore_payloads.insert(0, {"description": "Restore CID 6972 original value", "cid": str(self.cid_charge_discharge_one_cid), "inverterSn": self.inverter_sn, "value": self.last_6972_value, "yuanzhi": inhibit_6972_value, "language": self.language})
+            apply_payloads.append({
+                "description": "Apply CID 6972 inhibit discharge value",
+                "cid": str(self.cid_charge_discharge_one_cid),
+                "inverterSn": self.inverter_sn,
+                "value": inhibit_6972_value,
+                "yuanzhi": self.last_6972_value,
+                "language": self.language,
+            })
+
+            restore_payloads.insert(0, {
+                "description": "Restore CID 6972 original value",
+                "cid": str(self.cid_charge_discharge_one_cid),
+                "inverterSn": self.inverter_sn,
+                "value": self.last_6972_value,
+                "yuanzhi": inhibit_6972_value,
+                "language": self.language,
+            })
+
         return apply_payloads, restore_payloads
 
     def apply_inhibit_plan(self):
         print("BATTERY CONTROL apply inhibit plan requested", flush=True)
         apply_payloads, _ = self._build_inhibit_plan_payloads()
+
         if not apply_payloads:
             print("BATTERY CONTROL apply inhibit plan blocked: no valid apply payloads", flush=True)
             return False
+
         print("BATTERY CONTROL APPLY PLAN START", flush=True)
         for index, payload in enumerate(apply_payloads, start=1):
             description = payload.get("description", f"apply step {index}")
             print(f"BATTERY CONTROL APPLY STEP {index}: {payload}", flush=True)
             result = self._execute_control_payload(payload, description)
+
             if isinstance(result, dict) and result.get("success") is False:
                 print(f"BATTERY CONTROL apply inhibit plan stopped at step {index}", flush=True)
                 print("BATTERY CONTROL apply inhibit plan not completed. Run restore_inhibit_plan if a previous step was already applied.", flush=True)
                 return False
+
         self.active_6972_value = apply_payloads[-1].get("value") if apply_payloads else None
         print("BATTERY CONTROL apply inhibit plan completed", flush=True)
         return True
@@ -492,17 +666,21 @@ class BatteryControl:
     def restore_inhibit_plan(self):
         print("BATTERY CONTROL restore inhibit plan requested", flush=True)
         _, restore_payloads = self._build_inhibit_plan_payloads()
+
         if not restore_payloads:
             print("BATTERY CONTROL restore inhibit plan blocked: no valid restore payloads", flush=True)
             return False
+
         print("BATTERY CONTROL RESTORE PLAN START", flush=True)
         for index, payload in enumerate(restore_payloads, start=1):
             description = payload.get("description", f"restore step {index}")
             print(f"BATTERY CONTROL RESTORE STEP {index}: {payload}", flush=True)
             result = self._execute_control_payload(payload, description)
+
             if isinstance(result, dict) and result.get("success") is False:
                 print(f"BATTERY CONTROL restore inhibit plan stopped at step {index}", flush=True)
                 return False
+
         self.active_6972_value = None
         print("BATTERY CONTROL restore inhibit plan completed", flush=True)
         return True
@@ -512,11 +690,14 @@ class BatteryControl:
         if not force and now - self.last_validation_attempt < self.validation_retry_interval_s:
             return self.validation_done
         self.last_validation_attempt = now
+
         if not self.inverter_sn:
             print("BATTERY CONTROL validation skipped: missing inverter SN", flush=True)
             return False
+
         print("BATTERY CONTROL validation started", flush=True)
         marker = self.read_cid(self.cid_new_earning_marker, attempts=2, delay_s=1)
+
         if marker is not None:
             self.marker_6798_value = marker
             print(f"BATTERY CONTROL CID 6798 marker value: {marker}", flush=True)
@@ -527,23 +708,29 @@ class BatteryControl:
                 print("BATTERY CONTROL warning: CID 6798 is not 0xAA55. CID 6972/fallback may not match this firmware.", flush=True)
         else:
             print("BATTERY CONTROL warning: unable to read CID 6798 marker", flush=True)
+
         value_6972 = self.read_cid(self.cid_charge_discharge_one_cid, attempts=3, delay_s=2)
+
         if value_6972 and self._looks_like_6972_value(value_6972):
             print("BATTERY CONTROL CID 6972 direct read OK", flush=True)
             self.set_current_6972_value(value_6972)
             self.validation_done = True
             self.print_validation_summary(value_6972)
             return True
+
         print("BATTERY CONTROL CID 6972 direct read unavailable, trying unit CID fallback", flush=True)
         fallback_value = self.read_6972_value_from_unit_cids()
+
         if not fallback_value:
             print("BATTERY CONTROL validation failed: unable to rebuild CID 6972 from unit CIDs", flush=True)
             self.validation_done = False
             return False
+
         if not self._looks_like_6972_value(fallback_value):
             print("BATTERY CONTROL validation failed: rebuilt CID 6972 value is invalid", flush=True)
             self.validation_done = False
             return False
+
         self.set_current_6972_value(fallback_value)
         self.validation_done = True
         print("BATTERY CONTROL validation OK: CID 6972 rebuilt from unit CIDs", flush=True)
@@ -557,7 +744,11 @@ class BatteryControl:
         print("BATTERY CONTROL 6972 current groups:", flush=True)
         for index, group in enumerate(groups):
             kind = "charge" if index < 6 else "discharge"
-            print(f"BATTERY CONTROL group {index + 1:02d} {kind}: switch={group[0]} time={group[1]} current={group[2]} soc={group[3]} volt={group[4]}", flush=True)
+            print(
+                f"BATTERY CONTROL group {index + 1:02d} {kind}: "
+                f"switch={group[0]} time={group[1]} current={group[2]} soc={group[3]} volt={group[4]}",
+                flush=True,
+            )
         print(f"BATTERY CONTROL current yuanzhi: {value_6972}", flush=True)
         print(f"BATTERY CONTROL dry-run inhibit value: {inhibit_value}", flush=True)
 
@@ -572,15 +763,18 @@ class BatteryControl:
     def read_6972_value_from_unit_cids(self):
         print("BATTERY CONTROL fallback unit CID read started", flush=True)
         groups = []
+
         for idx in range(6):
             switch_value = self.read_slot_value(self.charge_switch_cids[idx], f"charge switch {idx + 1}")
             time_slot = self.read_slot_value(self.charge_time_cids[idx], f"charge time {idx + 1}")
             current = self.read_slot_value(self.charge_current_cids[idx], f"charge current {idx + 1}")
             soc = self.read_slot_value(self.charge_soc_cids[idx], f"charge soc {idx + 1}")
             voltage = self.read_slot_value(self.charge_voltage_cids[idx], f"charge voltage {idx + 1}")
+
             if None in [switch_value, time_slot, current, soc, voltage]:
                 print(f"BATTERY CONTROL fallback failed on charge group {idx + 1}", flush=True)
                 return None
+
             groups.append([
                 self._normalize_switch(switch_value),
                 self._normalize_time_slot(time_slot),
@@ -588,15 +782,18 @@ class BatteryControl:
                 self._normalize_numeric(soc, "20"),
                 self._normalize_numeric(voltage, "48"),
             ])
+
         for idx in range(6):
             switch_value = self.read_slot_value(self.discharge_switch_cids[idx], f"discharge switch {idx + 1}")
             time_slot = self.read_slot_value(self.discharge_time_cids[idx], f"discharge time {idx + 1}")
             current = self.read_slot_value(self.discharge_current_cids[idx], f"discharge current {idx + 1}")
             soc = self.read_slot_value(self.discharge_soc_cids[idx], f"discharge soc {idx + 1}")
             voltage = self.read_slot_value(self.discharge_voltage_cids[idx], f"discharge voltage {idx + 1}")
+
             if None in [switch_value, time_slot, current, soc, voltage]:
                 print(f"BATTERY CONTROL fallback failed on discharge group {idx + 1}", flush=True)
                 return None
+
             groups.append([
                 self._normalize_switch(switch_value),
                 self._normalize_time_slot(time_slot),
@@ -604,9 +801,11 @@ class BatteryControl:
                 self._normalize_numeric(soc, "20"),
                 self._normalize_numeric(voltage, "48"),
             ])
+
         if len(groups) != 12:
             print(f"BATTERY CONTROL fallback invalid group count: {len(groups)}", flush=True)
             return None
+
         rebuilt_value = self.join_6972_groups(groups)
         print(f"BATTERY CONTROL fallback rebuilt 6972 value: {rebuilt_value}", flush=True)
         return rebuilt_value
@@ -642,10 +841,12 @@ class BatteryControl:
         if not self._looks_like_6972_value(current_value):
             print("BATTERY CONTROL cannot build inhibit value: invalid current CID 6972 value", flush=True)
             return None
+
         groups = self.split_6972_groups(current_value)
         if len(groups) != 12:
             print(f"BATTERY CONTROL cannot safely build inhibit value: 6972 has {len(groups)} groups, expected 12", flush=True)
             return None
+
         new_groups = []
         for index, group in enumerate(groups):
             new_group = list(group)
@@ -653,102 +854,128 @@ class BatteryControl:
                 new_group[0] = "0"
                 new_group[1] = "00:00-00:00"
             new_groups.append(new_group)
+
         return self.join_6972_groups(new_groups)
 
     def _command_bool(self, value, default=False):
         if value is None:
             return default
+
         if isinstance(value, bool):
             return value
+
         if isinstance(value, (int, float)):
             return value != 0
+
         text = str(value).strip().lower()
+
         if text in ["1", "true", "yes", "on", "enabled", "armed"]:
             return True
+
         if text in ["0", "false", "no", "off", "disabled", "disarmed"]:
             return False
+
         return default
 
     def handle_command(self, command):
         print("BATTERY CONTROL command received:", command, flush=True)
+
         if not isinstance(command, dict):
             print("BATTERY CONTROL ignored: command is not a dict", flush=True)
             return
+
         action = command.get("action")
         mode = command.get("mode", "manual")
         enabled = command.get("enabled")
         duration_h = command.get("duration_h")
+
         if action == "validate_6972":
             self.validate_solis_charge_discharge_settings(force=True)
             return
+
         if action == "validate_modes":
             self.validate_modes()
             return
+
         if action == "dry_run_mode_candidates":
             self.dry_run_mode_candidates()
             return
+
         if action == "dry_run_apply_inhibit_plan":
             self.dry_run_apply_inhibit_plan()
             return
+
+        # Les boutons HA actuels envoient encore apply_inhibit_plan / restore_inhibit_plan.
         if action == "apply_inhibit_plan":
             effective_mode = str(command.get("reason") or mode or "manual")
             self.inhibit_discharge(mode=effective_mode, duration_h=duration_h)
             return
+
         if action == "restore_inhibit_plan":
             effective_mode = str(command.get("reason") or mode or "manual")
             self.resume_discharge(mode=effective_mode)
             return
+
         if action == "arm_inhibit_discharge":
             armed = self._command_bool(command.get("armed", enabled), default=False)
             self.offpeak_inhibit_armed = armed
             self.offpeak_window_start = str(command.get("window_start", self.offpeak_window_start or "22:00"))
             self.offpeak_window_end = str(command.get("window_end", self.offpeak_window_end or "06:00"))
             self.offpeak_last_command = dict(command)
-            if armed:
-                print(f"BATTERY CONTROL armed for off-peak window {self.offpeak_window_start}-{self.offpeak_window_end}", flush=True)
 
-                # Bouton HC / Veille HC : le payload HA arme la fenetre via
-                # action=arm_inhibit_discharge, mode=offpeak, armed=True.
-                # On conserve ce payload et on applique immediatement la logique validee
-                # en reel : 22:00-00:00 + 00:00-06:00, courant decharge 0 A.
+            if armed:
+                print(
+                    f"BATTERY CONTROL armed for off-peak window "
+                    f"{self.offpeak_window_start}-{self.offpeak_window_end}",
+                    flush=True,
+                )
                 self.inhibit_discharge(
                     mode=str(command.get("reason") or mode or "offpeak"),
                     duration_h=None,
                 )
             else:
-                print(f"BATTERY CONTROL disarmed for off-peak window {self.offpeak_window_start}-{self.offpeak_window_end}", flush=True)
-
-                # Desarmement HC = reprise decharge / reset de tous les slots decharge.
+                print(
+                    f"BATTERY CONTROL disarmed for off-peak window "
+                    f"{self.offpeak_window_start}-{self.offpeak_window_end}",
+                    flush=True,
+                )
                 self.resume_discharge(mode=str(command.get("reason") or mode or "offpeak"))
+
             return
+
         if action == "inhibit_discharge":
             self.inhibit_discharge(mode=mode, duration_h=duration_h)
             return
+
         if action == "resume_discharge":
             self.resume_discharge(mode=mode)
             return
+
         if enabled is True:
             self.inhibit_discharge(mode=mode, duration_h=duration_h)
             return
+
         if enabled is False:
             self.resume_discharge(mode=mode)
             return
+
         print("BATTERY CONTROL unsupported command:", command, flush=True)
 
     # -------------------------------------------------------------------------
-    # Nouvelle logique validée en réel - inhibition décharge via CIDs individuels
+    # Nouvelle logique hybride validée en réel
+    # 1 slot  : CIDs individuels, plus rapide
+    # 2 slots : CID6972 obligatoire, car CID5922/CID5923 écrasent le même registre
     # -------------------------------------------------------------------------
 
     def _values_equal_for_write(self, current, expected):
         if current is None:
             return False
-        current_text = str(current).strip().replace(" ", "")
-        expected_text = str(expected).strip().replace(" ", "")
-        return current_text == expected_text
+        return str(current).strip().replace(" ", "") == str(expected).strip().replace(" ", "")
 
     def _write_cid_with_readback(self, cid, value, description, delay_s=8, skip_if_same=False):
         current = self.read_cid(cid, attempts=3, delay_s=2)
         print(f"BATTERY CONTROL CID{cid} BEFORE = {current}", flush=True)
+
         if skip_if_same and self._values_equal_for_write(current, value):
             print(f"BATTERY CONTROL SKIP CID{cid}: already {value} ({description})", flush=True)
             return {
@@ -759,6 +986,7 @@ class BatteryControl:
                 "value": str(value),
                 "yuanzhi": str(current),
             }, current
+
         payload = {
             "description": description,
             "cid": str(cid),
@@ -767,13 +995,18 @@ class BatteryControl:
             "yuanzhi": str(current),
             "language": self.language,
         }
+
         result = self._execute_control_payload(payload, description)
         print(f"BATTERY CONTROL WRITE CID{cid} RESULT = {result}", flush=True)
+
         time.sleep(delay_s)
+
         after = self.read_cid(cid, attempts=3, delay_s=2)
         print(f"BATTERY CONTROL CID{cid} AFTER = {after}", flush=True)
+
         if str(after) != str(value):
             print(f"BATTERY CONTROL WARNING CID{cid}: expected={value} readback={after}", flush=True)
+
         return result, after
 
     def _force_self_use_individual(self):
@@ -788,7 +1021,11 @@ class BatteryControl:
 
     def _read_inhibit_slots_status(self):
         status = {}
-        cids = [636, 6798, 5922, 5923, 5924, 5925, 5926, 5927, 5964, 5967, 5968, 5971, 5972, 5976, 5980, 5987]
+        cids = [
+            636, 6798,
+            5922, 5923, 5924, 5925, 5926, 5927,
+            5964, 5967, 5968, 5971, 5972, 5976, 5980, 5987,
+        ]
         for cid in cids:
             try:
                 status[f"cid{cid}"] = self.read_cid(cid, attempts=3, delay_s=2)
@@ -828,40 +1065,54 @@ class BatteryControl:
         end_dt = start_dt + timedelta(hours=duration)
         start_hhmm = self._format_hhmm(start_dt)
         end_hhmm = self._format_hhmm(end_dt)
-        print(f"BATTERY CONTROL duration inhibit computed: duration_h={duration} start={start_hhmm} end={end_hhmm}", flush=True)
+        print(
+            f"BATTERY CONTROL duration inhibit computed: duration_h={duration} "
+            f"start={start_hhmm} end={end_hhmm}",
+            flush=True,
+        )
         return self._build_segments_from_times(start_hhmm, end_hhmm)
 
     def _select_inhibit_segments(self, mode=None, duration_h=None):
         mode_text = str(mode or "").strip().lower()
         duration_text = str(duration_h or "").strip().lower()
-        if mode_text in ["offpeak", "hc", "veille_hc", "veille hc", "night", "nuit", "22h", "22h-6h", "22h00-6h", "22h00-06h00", "22:00-06:00", "manual_22h00_6h", "manual_22h_6h"]:
+
+        if mode_text in [
+            "offpeak", "hc", "veille_hc", "veille hc", "night", "nuit",
+            "22h", "22h-6h", "22h00-6h", "22h00-06h00",
+            "22:00-06:00", "manual_22h00_6h", "manual_22h_6h",
+        ]:
             return [("22:00", "00:00"), ("00:00", "06:00")]
+
         if "offpeak" in mode_text or "veille" in mode_text or "hc" in mode_text:
             return [("22:00", "00:00"), ("00:00", "06:00")]
+
         if "22" in mode_text and ("6" in mode_text or "06" in mode_text):
             return [("22:00", "00:00"), ("00:00", "06:00")]
+
         if duration_text in ["6", "6.0", "6h"]:
             return self._build_segments_from_duration(6)
         if duration_text in ["12", "12.0", "12h"]:
             return self._build_segments_from_duration(12)
+
         if mode_text in ["6h", "6 h", "duration_6h", "duree_6h", "manual_6h", "manual6h", "inhibit_6h", "manual_6"]:
             return self._build_segments_from_duration(6)
         if mode_text in ["12h", "12 h", "duration_12h", "duree_12h", "manual_12h", "manual12h", "inhibit_12h", "manual_12"]:
             return self._build_segments_from_duration(12)
+
         return self._build_segments_from_duration(6)
 
     def _discharge_slot_defs(self):
         return [
-            {"slot": 1, "switch": 5922, "time": 5964, "current": 5967},
-            {"slot": 2, "switch": 5923, "time": 5968, "current": 5971},
-            {"slot": 3, "switch": 5924, "time": 5972, "current": 5975},
-            {"slot": 4, "switch": 5925, "time": 5976, "current": 5979},
-            {"slot": 5, "switch": 5926, "time": 5980, "current": 5983},
-            {"slot": 6, "switch": 5927, "time": 5987, "current": 5986},
+            {"slot": 1, "switch": 5922, "time": 5964, "current": 5967, "soc": 5965, "voltage": 5966},
+            {"slot": 2, "switch": 5923, "time": 5968, "current": 5971, "soc": 5969, "voltage": 5970},
+            {"slot": 3, "switch": 5924, "time": 5972, "current": 5975, "soc": 5973, "voltage": 5974},
+            {"slot": 4, "switch": 5925, "time": 5976, "current": 5979, "soc": 5977, "voltage": 5978},
+            {"slot": 5, "switch": 5926, "time": 5980, "current": 5983, "soc": 5981, "voltage": 5982},
+            {"slot": 6, "switch": 5927, "time": 5987, "current": 5986, "soc": 5984, "voltage": 5985},
         ]
 
-    def _reset_unused_discharge_slots(self, used_slot_count):
-        print(f"BATTERY CONTROL reset unused discharge slots used_slot_count={used_slot_count}", flush=True)
+    def _reset_unused_discharge_slots_individual(self, used_slot_count):
+        print(f"BATTERY CONTROL reset unused discharge slots individual used_slot_count={used_slot_count}", flush=True)
         for slot in self._discharge_slot_defs()[used_slot_count:]:
             self._write_cid_with_readback(
                 cid=slot["switch"],
@@ -878,84 +1129,252 @@ class BatteryControl:
                 skip_if_same=True,
             )
 
-    def _reset_all_discharge_slots(self):
-        print("BATTERY CONTROL reset all discharge slots", flush=True)
-        for slot in self._discharge_slot_defs():
-            self._write_cid_with_readback(
-                cid=slot["switch"],
-                value="0",
-                description=f"Disable Discharge Slot {slot['slot']}",
-                delay_s=8,
-                skip_if_same=True,
-            )
-        for slot in self._discharge_slot_defs():
-            self._write_cid_with_readback(
-                cid=slot["time"],
-                value="00:00-00:00",
-                description=f"Set Discharge Slot {slot['slot']} inactive time",
-                delay_s=8,
-                skip_if_same=True,
-            )
+    def _read_charge_discharge_groups_for_6972(self):
+        sw_c = [self.read_cid(cid, attempts=3, delay_s=2) for cid in self.charge_switch_cids]
+        sw_d = [self.read_cid(cid, attempts=3, delay_s=2) for cid in self.discharge_switch_cids]
+
+        charge = []
+        for idx in range(6):
+            charge.append([
+                self.read_cid(self.charge_time_cids[idx], attempts=3, delay_s=2),
+                self.read_cid(self.charge_soc_cids[idx], attempts=3, delay_s=2),
+                self.read_cid(self.charge_voltage_cids[idx], attempts=3, delay_s=2),
+                self.read_cid(self.charge_current_cids[idx], attempts=3, delay_s=2),
+            ])
+
+        discharge = []
+        for idx in range(6):
+            discharge.append([
+                self.read_cid(self.discharge_time_cids[idx], attempts=3, delay_s=2),
+                self.read_cid(self.discharge_soc_cids[idx], attempts=3, delay_s=2),
+                self.read_cid(self.discharge_voltage_cids[idx], attempts=3, delay_s=2),
+                self.read_cid(self.discharge_current_cids[idx], attempts=3, delay_s=2),
+            ])
+
+        return sw_c, charge, sw_d, discharge
+
+    def _build_6972_from_groups(self, sw_c, charge, sw_d, discharge):
+        parts = []
+
+        for idx in range(6):
+            time_slot, soc, volt, current = charge[idx]
+            parts += [
+                str(self._normalize_switch(sw_c[idx])),
+                str(self._normalize_time_slot(time_slot)),
+                str(self._normalize_numeric(current, "50")),
+                str(self._normalize_numeric(soc, "50")),
+                str(self._normalize_numeric(volt, "49")),
+            ]
+
+        for idx in range(6):
+            time_slot, soc, volt, current = discharge[idx]
+            parts += [
+                str(self._normalize_switch(sw_d[idx])),
+                str(self._normalize_time_slot(time_slot)),
+                str(self._normalize_numeric(current, "0")),
+                str(self._normalize_numeric(soc, "50")),
+                str(self._normalize_numeric(volt, "49")),
+            ]
+
+        return ",".join(parts)
+
+    def _write_cid6972_with_readback_validation(self, value_6972, yuanzhi_6972, description, expected_segments):
+        payload = {
+            "description": description,
+            "cid": str(self.cid_charge_discharge_one_cid),
+            "inverterSn": self.inverter_sn,
+            "value": value_6972,
+            "yuanzhi": yuanzhi_6972,
+            "language": self.language,
+        }
+
+        result = self._execute_control_payload(payload, description)
+        print(f"BATTERY CONTROL WRITE CID6972 RESULT = {result}", flush=True)
+
+        # CID6972 peut timeout cote HTTP tout en etant applique par l'onduleur.
+        # La validation fiable est donc la relecture des CIDs unitaires.
+        time.sleep(30)
+
+        status = self._read_inhibit_slots_status()
+        ok = self._validate_expected_segments_status(status, expected_segments)
+
+        if ok:
+            print("BATTERY CONTROL CID6972 validation OK by unit CID readback", flush=True)
+        else:
+            print("BATTERY CONTROL CID6972 validation FAILED by unit CID readback", flush=True)
+
+        return {
+            "success": ok,
+            "cid6972_result": result,
+            "status": status,
+        }
+
+    def _validate_expected_segments_status(self, status, expected_segments):
+        expected_switches = ["1" if idx < len(expected_segments) else "0" for idx in range(6)]
+        switch_cids = [5922, 5923, 5924, 5925, 5926, 5927]
+        time_cids = [5964, 5968, 5972, 5976, 5980, 5987]
+        current_cids = [5967, 5971, 5975, 5979, 5983, 5986]
+
+        for idx, cid in enumerate(switch_cids):
+            actual = str(status.get(f"cid{cid}"))
+            if actual != expected_switches[idx]:
+                print(f"BATTERY CONTROL validation switch failed CID{cid}: expected {expected_switches[idx]} got {actual}", flush=True)
+                return False
+
+        for idx in range(6):
+            cid_time = time_cids[idx]
+            cid_current = current_cids[idx]
+            if idx < len(expected_segments):
+                start_hhmm, end_hhmm = expected_segments[idx]
+                expected_time = f"{start_hhmm}-{end_hhmm}"
+                if str(status.get(f"cid{cid_time}")) != expected_time:
+                    print(f"BATTERY CONTROL validation time failed CID{cid_time}: expected {expected_time} got {status.get(f'cid{cid_time}')}", flush=True)
+                    return False
+                if str(status.get(f"cid{cid_current}")) != "0":
+                    print(f"BATTERY CONTROL validation current failed CID{cid_current}: expected 0 got {status.get(f'cid{cid_current}')}", flush=True)
+                    return False
+            else:
+                if str(status.get(f"cid{cid_time}")) != "00:00-00:00":
+                    print(f"BATTERY CONTROL validation inactive time failed CID{cid_time}: got {status.get(f'cid{cid_time}')}", flush=True)
+                    return False
+
+        return True
+
+    def _apply_discharge_inhibit_single_slot_individual(self, segment):
+        print(f"BATTERY CONTROL apply one slot inhibit via individual CIDs segment={segment}", flush=True)
+
+        self._force_self_use_individual()
+        self._reset_unused_discharge_slots_individual(used_slot_count=1)
+
+        start_hhmm, end_hhmm = segment
+
+        self._write_cid_with_readback(
+            cid=5964,
+            value=f"{start_hhmm}-{end_hhmm}",
+            description=f"Set Discharge Slot 1 inhibit time {start_hhmm}-{end_hhmm}",
+            delay_s=8,
+            skip_if_same=True,
+        )
+
+        self._write_cid_with_readback(
+            cid=5967,
+            value="0",
+            description="Set Discharge Slot 1 current 0A",
+            delay_s=8,
+            skip_if_same=True,
+        )
+
+        self._write_cid_with_readback(
+            cid=5922,
+            value="1",
+            description="Enable Discharge Slot 1",
+            delay_s=8,
+            skip_if_same=True,
+        )
+
+        time.sleep(10)
+        return self._read_inhibit_slots_status()
+
+    def _apply_discharge_inhibit_two_slots_6972(self, segments):
+        print(f"BATTERY CONTROL apply two slot inhibit via CID6972 segments={segments}", flush=True)
+
+        self._force_self_use_individual()
+
+        sw_c, charge, sw_d, discharge = self._read_charge_discharge_groups_for_6972()
+        yuanzhi_6972 = self._build_6972_from_groups(sw_c, charge, sw_d, discharge)
+
+        sw_d_new = ["0", "0", "0", "0", "0", "0"]
+        discharge_new = [list(item) for item in discharge]
+
+        for idx in range(6):
+            if idx < len(segments):
+                start_hhmm, end_hhmm = segments[idx]
+                sw_d_new[idx] = "1"
+                discharge_new[idx][0] = f"{start_hhmm}-{end_hhmm}"
+                discharge_new[idx][3] = "0"
+            else:
+                sw_d_new[idx] = "0"
+                discharge_new[idx][0] = "00:00-00:00"
+
+        value_6972 = self._build_6972_from_groups(sw_c, charge, sw_d_new, discharge_new)
+
+        print("BATTERY CONTROL CID6972 YUANZHI =", yuanzhi_6972, flush=True)
+        print("BATTERY CONTROL CID6972 VALUE   =", value_6972, flush=True)
+
+        result = self._write_cid6972_with_readback_validation(
+            value_6972=value_6972,
+            yuanzhi_6972=yuanzhi_6972,
+            description="Set discharge inhibit 2 slots via CID6972",
+            expected_segments=segments,
+        )
+
+        if result.get("success"):
+            self.active_6972_value = value_6972
+
+        return result
+
+    def _disable_discharge_inhibit_6972(self):
+        print("BATTERY CONTROL disable discharge inhibit via CID6972", flush=True)
+
+        self._force_self_use_individual()
+
+        sw_c, charge, sw_d, discharge = self._read_charge_discharge_groups_for_6972()
+        yuanzhi_6972 = self._build_6972_from_groups(sw_c, charge, sw_d, discharge)
+
+        sw_d_new = ["0", "0", "0", "0", "0", "0"]
+        discharge_new = [list(item) for item in discharge]
+
+        for idx in range(6):
+            discharge_new[idx][0] = "00:00-00:00"
+            # On ne restaure pas arbitrairement les courants : sans switch et sans creneau,
+            # le courant est non pertinent.
+
+        value_6972 = self._build_6972_from_groups(sw_c, charge, sw_d_new, discharge_new)
+
+        print("BATTERY CONTROL CID6972 OFF YUANZHI =", yuanzhi_6972, flush=True)
+        print("BATTERY CONTROL CID6972 OFF VALUE   =", value_6972, flush=True)
+
+        result = self._write_cid6972_with_readback_validation(
+            value_6972=value_6972,
+            yuanzhi_6972=yuanzhi_6972,
+            description="Disable discharge inhibit via CID6972",
+            expected_segments=[],
+        )
+
+        self.active_6972_value = None
+        return result
 
     def _apply_discharge_inhibit_segments(self, segments):
         print(f"BATTERY CONTROL apply discharge inhibit segments={segments}", flush=True)
+
         if not segments:
             print("BATTERY CONTROL inhibit blocked: empty segments", flush=True)
             return None
-        if len(segments) > 2:
-            print("BATTERY CONTROL inhibit blocked: more than 2 segments not supported", flush=True)
-            return None
-        self._force_self_use_individual()
-        self._reset_unused_discharge_slots(used_slot_count=len(segments))
-        slot_defs = self._discharge_slot_defs()
-        for idx, segment in enumerate(segments):
-            slot = slot_defs[idx]
-            start_hhmm, end_hhmm = segment
-            self._write_cid_with_readback(
-                cid=slot["time"],
-                value=f"{start_hhmm}-{end_hhmm}",
-                description=f"Set Discharge Slot {slot['slot']} inhibit time {start_hhmm}-{end_hhmm}",
-                delay_s=8,
-                skip_if_same=True,
-            )
-            self._write_cid_with_readback(
-                cid=slot["current"],
-                value="0",
-                description=f"Set Discharge Slot {slot['slot']} current 0A",
-                delay_s=8,
-                skip_if_same=True,
-            )
-        for idx in range(len(segments)):
-            slot = slot_defs[idx]
-            self._write_cid_with_readback(
-                cid=slot["switch"],
-                value="1",
-                description=f"Enable Discharge Slot {slot['slot']}",
-                delay_s=8,
-                skip_if_same=True,
-            )
-        time.sleep(10)
-        return self._read_inhibit_slots_status()
 
-    def _disable_discharge_inhibit_individual(self):
-        print("BATTERY CONTROL disable discharge inhibit using individual CIDs", flush=True)
-        self._reset_all_discharge_slots()
-        self._force_self_use_individual()
-        time.sleep(10)
-        return self._read_inhibit_slots_status()
+        if len(segments) == 1:
+            return self._apply_discharge_inhibit_single_slot_individual(segments[0])
+
+        if len(segments) == 2:
+            return self._apply_discharge_inhibit_two_slots_6972(segments)
+
+        print("BATTERY CONTROL inhibit blocked: more than 2 segments not supported", flush=True)
+        return None
 
     def inhibit_discharge(self, mode="manual", duration_h=None):
         print(f"BATTERY CONTROL inhibit discharge requested mode={mode} duration_h={duration_h}", flush=True)
+
         segments = self._select_inhibit_segments(mode=mode, duration_h=duration_h)
         print(f"BATTERY CONTROL selected inhibit segments = {segments}", flush=True)
+
         status = self._apply_discharge_inhibit_segments(segments)
-        self.active_6972_value = None
-        print("BATTERY CONTROL inhibit completed using individual CIDs", flush=True)
+        print("BATTERY CONTROL inhibit completed using hybrid CIDs", flush=True)
         return status
 
     def resume_discharge(self, mode="manual"):
         print(f"BATTERY CONTROL resume discharge requested mode={mode}", flush=True)
-        status = self._disable_discharge_inhibit_individual()
+
+        status = self._disable_discharge_inhibit_6972()
+
         self.active_6972_value = None
-        print("BATTERY CONTROL resume completed using individual CIDs", flush=True)
+        print("BATTERY CONTROL resume completed using CID6972", flush=True)
         return status

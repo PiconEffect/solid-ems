@@ -23,6 +23,9 @@ sequence:
           - target:
               entity_id: input_boolean.solid_inhibition_decharge_manuelle
             action: input_boolean.turn_off
+          - target:
+              entity_id: timer.inhibition_batterie
+            action: timer.cancel
     default:
       - target:
           entity_id: input_select.solid_duree_inhibition_decharge
@@ -32,6 +35,11 @@ sequence:
       - target:
           entity_id: input_boolean.solid_inhibition_decharge_manuelle
         action: input_boolean.turn_on
+      - target:
+          entity_id: timer.inhibition_batterie
+        data:
+          duration: "06:00:00"
+        action: timer.start
       - data:
           topic: solid/command/battery_discharge_inhibit
           qos: 0

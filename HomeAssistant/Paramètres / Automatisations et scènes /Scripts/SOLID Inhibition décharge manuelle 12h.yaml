@@ -1,0 +1,25 @@
+alias: SOLID Inhibition décharge manuelle 12h
+mode: restart
+sequence:
+  - target:
+      entity_id: input_select.solid_duree_inhibition_decharge
+    data:
+      option: "12"
+    action: input_select.select_option
+  - target:
+      entity_id: input_boolean.solid_inhibition_decharge_manuelle
+    action: input_boolean.turn_on
+  - data:
+      topic: solid/command/battery_discharge_inhibit
+      qos: 0
+      retain: false
+      payload: |
+        {
+          "source": "homeassistant",
+          "mode": "manual",
+          "enabled": true,
+          "duration_h": 12,
+          "action": "apply_inhibit_plan",
+          "reason": "manual_12h"
+        }
+    action: mqtt.publish

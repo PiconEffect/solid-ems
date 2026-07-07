@@ -1,0 +1,36 @@
+alias: SOLID Toggle veille HC
+mode: restart
+sequence:
+  - choose:
+      - conditions:
+          - condition: state
+            entity_id: input_boolean.solid_veille_hc
+            state: "on"
+        sequence:
+          - target:
+              entity_id: input_boolean.solid_veille_hc
+            action: input_boolean.turn_off
+          - data:
+              topic: solid/command/battery_discharge_inhibit
+              qos: 0
+              retain: false
+              payload: |
+                {
+                  "source": "homeassistant",
+                  "mode": "offpeak",
+                  "enabled": false,
+                  "armed": false,
+                  "action": "arm_inhibit_discharge",
+                  "reason": "veille_hc_disarmed"
+                }
+            action: mqtt.publish
+    default:
+      - target:
+          entity_id: input_boolean.solid_veille_hc
+        action: input_boolean.turn_on
+      - data:
+          topic: solid/command/battery_discharge_inhibit
+          qos: 0
+          retain: false
+          payload: |
+            {

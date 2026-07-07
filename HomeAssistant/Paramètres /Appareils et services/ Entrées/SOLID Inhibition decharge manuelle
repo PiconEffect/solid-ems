@@ -1,0 +1,6 @@
+Nom : SOLID Inhibition décharge manuelle
+Icône : mdi:battery-lock
+Options :
+6
+12
+ID d'entité : input_boolean.solid_inhibition_decharge_manuelle

@@ -1,0 +1,25 @@
+alias: SOLID Veille HC - annulation immédiate
+description: ""
+triggers:
+  - entity_id: input_boolean.solid_veille_hc
+    to: "off"
+    trigger: state
+conditions:
+  - condition: template
+    value_template: |
+      {% set h = now().hour %} {{ h >= 22 or h < 6 }}
+actions:
+  - data:
+      topic: solid/command/battery_discharge_inhibit
+      retain: false
+      payload: |
+        {
+          "source": "homeassistant",
+          "mode": "offpeak",
+          "enabled": false,
+          "active_now": false,
+          "action": "restore_inhibit_plan",
+          "reason": "manual_disable_during_offpeak_window"
+        }
+    action: mqtt.publish
+mode: single

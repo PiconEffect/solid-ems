@@ -1,0 +1,26 @@
+alias: SOLID Veille HC - activation immédiate si plage active
+description: ""
+triggers:
+  - entity_id: input_boolean.solid_veille_hc
+    to: "on"
+    trigger: state
+conditions:
+  - condition: template
+    value_template: |
+      {% set h = now().hour %} {{ h >= 22 or h < 6 }}
+actions:
+  - data:
+      topic: solid/command/battery_discharge_inhibit
+      retain: false
+      payload: |
+        {
+          "source": "homeassistant",
+          "mode": "offpeak",
+          "enabled": true,
+          "active_now": true,
+          "duration_h": 8,
+          "action": "apply_inhibit_plan",
+          "reason": "manual_enable_during_offpeak_window"
+        }
+    action: mqtt.publish
+mode: single

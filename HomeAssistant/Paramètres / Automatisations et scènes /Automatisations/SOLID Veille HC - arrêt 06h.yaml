@@ -8,6 +8,10 @@ conditions:
     entity_id: input_boolean.solid_veille_hc
     state: "on"
 actions:
+  - target:
+      entity_id: input_boolean.solid_veille_hc
+    action: input_boolean.turn_off
+
   - data:
       topic: solid/command/battery_discharge_inhibit
       retain: false

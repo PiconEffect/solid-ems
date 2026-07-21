@@ -184,6 +184,13 @@ class SolisClient:
                 d.get("temperature", d.get("inverterTemperature"))
             ),
 
+            # Daily energy values from Solis inverter detail.
+            # Added without changing existing field names or existing mappings.
+            "grid_import_today_kwh": self._to_float(d.get("gridPurchasedTodayEnergy")),
+            "battery_charge_today_kwh": self._to_float(d.get("batteryTodayChargeEnergy")),
+            "battery_discharge_today_kwh": self._to_float(d.get("batteryTodayDischargeEnergy")),
+            "home_load_today_kwh": self._to_float(d.get("homeLoadTodayEnergy")),
+
             # PV strings
             "pv1_power": round(max(pv1_power_kw, 0.0), 3),
             "pv2_power": round(max(pv2_power_kw, 0.0), 3),

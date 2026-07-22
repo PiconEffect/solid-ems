@@ -337,6 +337,10 @@ def normalize_state(solis_data, tempo_data, ai_data):
         "battery_charge_today_kwh": 0.0,
         "battery_discharge_today_kwh": 0.0,
         "home_load_today_kwh": 0.0,
+        "revenue_today_eur": 0.0,
+        "revenue_month_eur": 0.0,
+        "revenue_year_eur": 0.0,
+        "revenue_total_eur": 0.0,
         "pv_forecast_kw": 0.0,
         "estimated_autonomy_h": 0.0,
         "estimated_battery_full_h": 0.0,
@@ -356,6 +360,7 @@ def normalize_state(solis_data, tempo_data, ai_data):
         "advice_confidence": "medium",
         "pv_string_status": "UNKNOWN",
         "pv_string_alert": "Diagnostic strings indisponible",
+        "revenue_currency": "EUR",
     }
 
     integer_defaults = {

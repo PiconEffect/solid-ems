@@ -153,6 +153,64 @@ views:
                           icon:
                             - width: 18px
                             - color: "#FF6F00"
+                  - type: grid
+                    columns: 3
+                    square: false
+                    cards:
+                      - type: custom:button-card
+                        entity: sensor.panneaux_solaires_solid_ems_revenue_today
+                        name: Rend. jour
+                        icon: mdi:cash-clock
+                        show_state: true
+                        styles:
+                          card:
+                            - height: 48px
+                            - border-radius: 11px
+                            - padding: 4px
+                          name:
+                            - font-size: 9.5px
+                          state:
+                            - font-size: 13px
+                            - font-weight: 700
+                          icon:
+                            - width: 18px
+                            - color: "#00C853"
+                      - type: custom:button-card
+                        entity: sensor.panneaux_solaires_solid_ems_revenue_month
+                        name: Rend. mois
+                        icon: mdi:cash-calendar
+                        show_state: true
+                        styles:
+                          card:
+                            - height: 48px
+                            - border-radius: 11px
+                            - padding: 4px
+                          name:
+                            - font-size: 9.5px
+                          state:
+                            - font-size: 13px
+                            - font-weight: 700
+                          icon:
+                            - width: 18px
+                            - color: "#00A86B"
+                      - type: custom:button-card
+                        entity: sensor.panneaux_solaires_solid_ems_revenue_total
+                        name: Rend. total
+                        icon: mdi:cash-register
+                        show_state: true
+                        styles:
+                          card:
+                            - height: 48px
+                            - border-radius: 11px
+                            - padding: 4px
+                          name:
+                            - font-size: 9.5px
+                          state:
+                            - font-size: 13px
+                            - font-weight: 700
+                          icon:
+                            - width: 18px
+                            - color: "#1B5E20"
                   - type: markdown
                     content: >
                       **Diag PV :** {{
@@ -224,7 +282,7 @@ views:
                         icon: mdi:calendar-today
                         name: Aujourd'hui
                         label: |
-                          [[[
+                          [[[ 
                             const code = states['sensor.solid_ems_solid_tempo']?.state;
                             const labelRaw = states['sensor.panneaux_solaires_solid_ems_solid_tempo_label']?.state;
                             const label = labelRaw ? labelRaw.toLowerCase() : '';
@@ -239,7 +297,7 @@ views:
                             - border-radius: 14px
                             - padding: 6px
                             - color: |
-                                [[[
+                                [[[ 
                                   const code = states['sensor.solid_ems_solid_tempo']?.state;
                                   const labelRaw = states['sensor.panneaux_solaires_solid_ems_solid_tempo_label']?.state;
                                   const label = labelRaw ? labelRaw.toLowerCase() : '';
@@ -247,7 +305,7 @@ views:
                                   return '#ffffff';
                                 ]]]
                             - background: |
-                                [[[
+                                [[[ 
                                   const code = states['sensor.solid_ems_solid_tempo']?.state;
                                   const labelRaw = states['sensor.panneaux_solaires_solid_ems_solid_tempo_label']?.state;
                                   const label = labelRaw ? labelRaw.toLowerCase() : '';
@@ -273,7 +331,7 @@ views:
                         icon: mdi:calendar-arrow-right
                         name: Demain
                         label: |
-                          [[[
+                          [[[ 
                             const code = states['sensor.panneaux_solaires_solid_ems_solid_tempo_tomorrow']?.state;
                             const labelRaw = states['sensor.panneaux_solaires_solid_ems_solid_tempo_tomorrow_label']?.state;
                             const label = labelRaw ? labelRaw.toLowerCase() : '';
@@ -288,7 +346,7 @@ views:
                             - border-radius: 14px
                             - padding: 6px
                             - color: |
-                                [[[
+                                [[[ 
                                   const code = states['sensor.panneaux_solaires_solid_ems_solid_tempo_tomorrow']?.state;
                                   const labelRaw = states['sensor.panneaux_solaires_solid_ems_solid_tempo_tomorrow_label']?.state;
                                   const label = labelRaw ? labelRaw.toLowerCase() : '';
@@ -296,7 +354,7 @@ views:
                                   return '#ffffff';
                                 ]]]
                             - background: |
-                                [[[
+                                [[[ 
                                   const code = states['sensor.panneaux_solaires_solid_ems_solid_tempo_tomorrow']?.state;
                                   const labelRaw = states['sensor.panneaux_solaires_solid_ems_solid_tempo_tomorrow_label']?.state;
                                   const label = labelRaw ? labelRaw.toLowerCase() : '';
@@ -327,7 +385,7 @@ views:
                         show_label: true
                         update_timer: 1000
                         label: |
-                          [[[
+                          [[[ 
                             const active = states['input_boolean.solid_inhibition_decharge_manuelle']?.state === 'on';
                             const duration = states['input_select.solid_duree_inhibition_decharge']?.state || '6';
                             const timer = states['timer.inhibition_batterie'];
@@ -352,7 +410,7 @@ views:
                           service: script.solid_toggle_inhibition_decharge_manuelle
                           confirmation:
                             text: |
-                              [[[
+                              [[[ 
                                 const active = states['input_boolean.solid_inhibition_decharge_manuelle']?.state === 'on';
                                 const duration = states['input_select.solid_duree_inhibition_decharge']?.state || '6';
                                 if (active) return 'Confirmer l’arrêt de l’inhibition de décharge batterie ?';
@@ -362,7 +420,9 @@ views:
                           action: call-service
                           service: script.solid_inhibition_decharge_manuelle_12h
                           confirmation:
-                            text: "Confirmer l’activation de l’inhibition de décharge batterie 12h ?"
+                            text: >-
+                              Confirmer l’activation de l’inhibition de décharge
+                              batterie 12h ?
                         styles:
                           grid:
                             - grid-template-areas: '"i" "n" "l"'
@@ -374,7 +434,7 @@ views:
                             - border-radius: 13px
                             - padding: 5px
                             - background: |
-                                [[[
+                                [[[ 
                                   const active = states['input_boolean.solid_inhibition_decharge_manuelle']?.state === 'on';
                                   const duration = states['input_select.solid_duree_inhibition_decharge']?.state || '6';
                                   if (active && duration === '12') return 'linear-gradient(135deg, #0D47A1, #42A5F5)';
@@ -383,7 +443,7 @@ views:
                                 ]]]
                             - color: "#ffffff"
                             - border: |
-                                [[[
+                                [[[ 
                                   const active = states['input_boolean.solid_inhibition_decharge_manuelle']?.state === 'on';
                                   const duration = states['input_select.solid_duree_inhibition_decharge']?.state || '6';
                                   if (active && duration === '12') return '1px solid #90CAF9';
@@ -412,7 +472,7 @@ views:
                             - text-align: center
                             - width: 100%
                             - color: |
-                                [[[
+                                [[[ 
                                   const active = states['input_boolean.solid_inhibition_decharge_manuelle']?.state === 'on';
                                   const timer = states['timer.inhibition_batterie'];
                                   if (active && timer?.state === 'active') return '#FFE082';
@@ -427,7 +487,7 @@ views:
                         show_state: false
                         show_label: true
                         label: |
-                          [[[
+                          [[[ 
                             const armed = states['input_boolean.solid_veille_hc']?.state === 'on';
                             const h = new Date().getHours();
                             const inWindow = h >= 22 || h < 6;
@@ -440,7 +500,7 @@ views:
                           service: script.solid_toggle_veille_hc
                           confirmation:
                             text: |
-                              [[[
+                              [[[ 
                                 const armed = states['input_boolean.solid_veille_hc']?.state === 'on';
                                 if (armed) return 'Confirmer l’arrêt de la veille HC batterie ?';
                                 return 'Confirmer l’activation de la veille HC batterie 22h00-06h00 ?';
@@ -451,7 +511,7 @@ views:
                             - border-radius: 13px
                             - padding: 5px
                             - background: |
-                                [[[
+                                [[[ 
                                   const armed = states['input_boolean.solid_veille_hc']?.state === 'on';
                                   const h = new Date().getHours();
                                   const inWindow = h >= 22 || h < 6;
@@ -461,7 +521,7 @@ views:
                                 ]]]
                             - color: "#ffffff"
                             - border: |
-                                [[[
+                                [[[ 
                                   const armed = states['input_boolean.solid_veille_hc']?.state === 'on';
                                   const h = new Date().getHours();
                                   const inWindow = h >= 22 || h < 6;
@@ -487,7 +547,7 @@ views:
                         name: Autoconso
                         icon: mdi:home-lightning-bolt
                         show_state: true
-                        styles:
+                        styles: &small_tile_styles
                           card:
                             - height: 48px
                             - border-radius: 11px
@@ -515,192 +575,75 @@ views:
                         icon: mdi:battery-clock
                         show_state: true
                         styles:
-                          card:
-                            - height: 48px
-                            - border-radius: 11px
-                            - padding: 4px
-                          grid:
-                            - grid-template-areas: '"i n" "i s"'
-                            - grid-template-columns: 24px 1fr
-                            - grid-template-rows: 1fr 1fr
+                          <<: *small_tile_styles
                           icon:
                             - width: 18px
                             - color: "#FFA000"
-                          name:
-                            - font-size: 9.5px
-                            - font-weight: 600
-                            - justify-self: start
-                            - align-self: end
-                          state:
-                            - font-size: 13px
-                            - font-weight: 700
-                            - justify-self: start
-                            - align-self: start
                       - type: custom:button-card
                         entity: sensor.panneaux_solaires_solid_ems_solid_habit_load_now
                         name: Prév conso
                         icon: mdi:chart-bell-curve
                         show_state: true
                         styles:
-                          card:
-                            - height: 48px
-                            - border-radius: 11px
-                            - padding: 4px
-                          grid:
-                            - grid-template-areas: '"i n" "i s"'
-                            - grid-template-columns: 24px 1fr
-                            - grid-template-rows: 1fr 1fr
+                          <<: *small_tile_styles
                           icon:
                             - width: 18px
                             - color: "#2196F3"
-                          name:
-                            - font-size: 9.5px
-                            - font-weight: 600
-                            - justify-self: start
-                            - align-self: end
-                          state:
-                            - font-size: 13px
-                            - font-weight: 700
-                            - justify-self: start
-                            - align-self: start
                       - type: custom:button-card
                         entity: sensor.solid_ems_solid_daily_energy
                         name: Prod. jour
                         icon: mdi:solar-power
                         show_state: true
                         styles:
-                          card:
-                            - height: 48px
-                            - border-radius: 11px
-                            - padding: 4px
-                          grid:
-                            - grid-template-areas: '"i n" "i s"'
-                            - grid-template-columns: 24px 1fr
-                            - grid-template-rows: 1fr 1fr
+                          <<: *small_tile_styles
                           icon:
                             - width: 18px
                             - color: "#FFA000"
-                          name:
-                            - font-size: 9.5px
-                            - font-weight: 600
-                            - justify-self: start
-                            - align-self: end
-                          state:
-                            - font-size: 13px
-                            - font-weight: 700
-                            - justify-self: start
-                            - align-self: start
                       - type: custom:button-card
                         entity: sensor.panneaux_solaires_solid_ems_grid_import_today
                         name: Réseau jour
                         icon: mdi:transmission-tower-import
                         show_state: true
                         styles:
-                          card:
-                            - height: 48px
-                            - border-radius: 11px
-                            - padding: 4px
-                          grid:
-                            - grid-template-areas: '"i n" "i s"'
-                            - grid-template-columns: 24px 1fr
-                            - grid-template-rows: 1fr 1fr
+                          <<: *small_tile_styles
                           icon:
                             - width: 18px
                             - color: "#F44336"
-                          name:
-                            - font-size: 9.5px
-                            - font-weight: 600
-                            - justify-self: start
-                            - align-self: end
-                          state:
-                            - font-size: 13px
-                            - font-weight: 700
-                            - justify-self: start
-                            - align-self: start
                       - type: custom:button-card
                         entity: sensor.panneaux_solaires_solid_ems_home_load_today
                         name: Conso jour
                         icon: mdi:home-lightning-bolt
                         show_state: true
                         styles:
-                          card:
-                            - height: 48px
-                            - border-radius: 11px
-                            - padding: 4px
-                          grid:
-                            - grid-template-areas: '"i n" "i s"'
-                            - grid-template-columns: 24px 1fr
-                            - grid-template-rows: 1fr 1fr
+                          <<: *small_tile_styles
                           icon:
                             - width: 18px
                             - color: "#2196F3"
-                          name:
-                            - font-size: 9.5px
-                            - font-weight: 600
-                            - justify-self: start
-                            - align-self: end
-                          state:
-                            - font-size: 13px
-                            - font-weight: 700
-                            - justify-self: start
-                            - align-self: start
                       - type: custom:button-card
                         entity: sensor.panneaux_solaires_solid_ems_battery_charge_today
                         name: Charge jour
                         icon: mdi:battery-plus
                         show_state: true
                         styles:
-                          card:
-                            - height: 48px
-                            - border-radius: 11px
-                            - padding: 4px
-                          grid:
-                            - grid-template-areas: '"i n" "i s"'
-                            - grid-template-columns: 24px 1fr
-                            - grid-template-rows: 1fr 1fr
+                          <<: *small_tile_styles
                           icon:
                             - width: 18px
                             - color: "#00A86B"
-                          name:
-                            - font-size: 9.5px
-                            - font-weight: 600
-                            - justify-self: start
-                            - align-self: end
-                          state:
-                            - font-size: 13px
-                            - font-weight: 700
-                            - justify-self: start
-                            - align-self: start
                       - type: custom:button-card
                         entity: sensor.panneaux_solaires_solid_ems_battery_discharge_today
                         name: Déch. jour
                         icon: mdi:battery-minus
                         show_state: true
                         styles:
-                          card:
-                            - height: 48px
-                            - border-radius: 11px
-                            - padding: 4px
-                          grid:
-                            - grid-template-areas: '"i n" "i s"'
-                            - grid-template-columns: 24px 1fr
-                            - grid-template-rows: 1fr 1fr
+                          <<: *small_tile_styles
                           icon:
                             - width: 18px
                             - color: "#9C27B0"
-                          name:
-                            - font-size: 9.5px
-                            - font-weight: 600
-                            - justify-self: start
-                            - align-self: end
-                          state:
-                            - font-size: 13px
-                            - font-weight: 700
-                            - justify-self: start
-                            - align-self: start
                   - type: markdown
                     content: >
-                      **Mode :** {{ states('sensor.panneaux_solaires_solid_ems_solid_energy_mode') }}  
+                      **Mode :** {{
+                      states('sensor.panneaux_solaires_solid_ems_solid_energy_mode')
+                      }}  
 
                       **IA :** {{ states('sensor.solid_ems_solid_ai_advice') }}
           - type: horizontal-stack

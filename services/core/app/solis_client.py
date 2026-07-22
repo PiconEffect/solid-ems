@@ -191,6 +191,14 @@ class SolisClient:
             "battery_discharge_today_kwh": self._to_float(d.get("batteryTodayDischargeEnergy")),
             "home_load_today_kwh": self._to_float(d.get("homeLoadTodayEnergy")),
 
+            # Financial yield values from Solis inverter detail.
+            # Added without changing existing field names or existing mappings.
+            "revenue_today_eur": self._to_float(d.get("dayInCome")),
+            "revenue_month_eur": self._to_float(d.get("monthInCome")),
+            "revenue_year_eur": self._to_float(d.get("yearInCome")),
+            "revenue_total_eur": self._to_float(d.get("allInCome")),
+            "revenue_currency": d.get("money") or "EUR",
+
             # PV strings
             "pv1_power": round(max(pv1_power_kw, 0.0), 3),
             "pv2_power": round(max(pv2_power_kw, 0.0), 3),
